@@ -1,13 +1,10 @@
-from typing import List, Dict, Optional
-from pydantic import BaseModel, Field
-from langchain.prompts import PromptTemplate
-from agent.chat_openai_factory import ChatOpenAIFactory
-from langchain.output_parsers import PydanticOutputParser
-from langchain.agents import create_openai_functions_agent, tool
+from typing import List
+
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnableSequence
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.messages import HumanMessage, SystemMessage
+from pydantic import BaseModel, Field
+
+from agent.chat_openai_factory import ChatOpenAIFactory
+from agent.trip_preference import TripPreference
 
 DEFAULT_CATEGORIES = "Must-visit"
 
@@ -45,8 +42,8 @@ class TripRecommendations(BaseModel):
 
 SYSTEM_MESSAGE_TEMPLATE = (
     "From now on, you are an excellent tour guide of "
-    "{recommender_country}, living in "
-    "{recommender_country} for 20 years."
+    "{location}, living in "
+    "{location} for 20 years."
 )
 
 RECOMMENDATION_PROMPT = """
@@ -58,99 +55,42 @@ I am planning a trip and need detailed recommendations based on the following pr
 - **Duration**: {trip_days} days
 - **Group Size**: {people_count} people
 - **Location**: {location}
-- **Budget**: {budget}
+- **Budget**: {budget} in USD
 - **Interests**: {interests}
 
 ---
 
 ### Recommendations
 Please provide:
-1. **{n_recommendations}** aligned recommendations** matching my interests.
-2. **1-3 exploratory recommendations** beyond my stated interests but still fun and enriching. 
-   If the recommendations are not aligned with my interests, 
-   still provide their categories of interest, annotated with "Exploratory", e.g. "Exploratory: Hot spring, nature".
-   If you cannot find any exploratory recommendations, you can skip this part.
-3. Proritize must-visits categories and order the recommendations based on their relevance to my interests and their popularities.
-4. For each recommendation, include the properties:
-    1. name: Name of the attraction/activity.
-    2. location: Specific location (address or district).
-    3. duration: Recommended duration, in hours. If two days, put 48 hours.
-    4. peopleCount: Suitable group size.
-    5. budget: Estimated budget, in USD dollars.
-    6. category: Category of interests. Can be one or more categories.
-5. Each recommendation should include only the specified properties. Avoid adding extra information or descriptions.
+1. {n_recommendations} aligned recommendations** matching my interests. X depends on the overall duration and budget of my trip. 
+    The overall duration and budget should be smaller or equals peferences duration and budget.
+2. Proritize must-visits categories and order the recommendations based on their relevance to my interests and their popularities.
+3. Make sure each recommendation's budget is within my budget.
+4. Make sure each recommendation's duration is within my trip duration.
+5. Make sure each recommendation's peopleCount is suitable for my group size.
 """
 
-RECOMMENDATION_VERIFICATION_PROMPT = """
-provided interests: {interests}
-Proposed recommendations:
-{firstpass_recommendations}
+ITINERARY_PROMPT = """
+I am planning a trip and need detailed recommendations based on the following preferences:
 
-Please verify the recommendations using the following steps to ensure they meet the provided criteria. 
-1. Aligned Recommendations Check (applied for not-`Exploratory` recommendations):
-    Verify at least one categories of the recommendation match at least one of the provided interests.
-2. Exploratory Recommendations Check (applied for `Exploratory` recommendations):
-    Verify **ALL** categories of the recommendation are outside of the provided interests.
-Below are some examples
-Provided interests: Food, Sight-seeing, Cultural Experiences, Shopping, Night Markets
-Recommendation 1:
-    - ... (other properties)
-    - **category**: Exploratory: Hot spring, Nature
-    - status: pass
--> This recommendation passes the second check because it does not include any of the provided interests.
-Recommendation 2:
-    - ... (other properties)
-    - **category**: Exploratory: Sight-seeing, Nature
--> This recommendation fails the second check because it includes Sight-seeing, which is one of the provided interests.
-The output should be replaced with another recommendation that passes the checks. e.g.:
-Recommendation 2:
-    - ... (other properties)
-    - **category**: Exploratory: Food, Nature
-    - status: replaced
-Recommendation 3:
-    - ... (other properties)
-    - **category**: Food, Nature
-    - status: pass
--> This recommendation passes the first check because it includes Food, which is one of the provided interests.
-Recommendation 4:
-    - ... (other properties)
-    - **category**: Hot spring, Nature
--> This recommendation fails the first check because either Hot spring or Nature is not one of the provided interests.
-    The output should be replaced with another recommendation that passes the checks. e.g.:
-Recommendation 4:
-    - ... (other properties)
-    - **category**: Sight-seeing, Nature
-    - status: replaced
-"""
+### Trip Preferences
+- **Duration**: {trip_days} days
+- **Group Size**: {people_count} people
+- **Location**: {location}
+- **Budget**: {budget} in USD
+- **Interests**: {interests}
 
-VERFIED_RECOMMENDATION_EXTRACT_PROMPT = """
-Please extract the from the belowing recommendations that are either stats = pass or status = replaced,
-and output them with the properties that defined in the function `Attraction`
-{verifed_recommendations}
+Given the following recommendations, enhance these recommendations by organizing them into an itinerary and adding
+    unique insights, local tips, and any hidden gems that complement the listed places.
+{recommendations}
 """
 
 
 class TripAgent:
     def __init__(self, chat_openai_factory: ChatOpenAIFactory):
         self.chat_openai_factory = chat_openai_factory
-        self.country = None
-
-    async def set_country(self, location: str, reset: bool = False):
-        if self.country is None or reset:
-            knowledge_fn = self.chat_openai_factory.create(
-                temperature=0, model_name="gpt-4o"
-            )
-            self.country = await knowledge_fn.pipe(StrOutputParser()).ainvoke(
-                [
-                    (
-                        "human",
-                        f"what are the country of the following location, answering just the country name, don't show redundant country: {location}",
-                    )
-                ]
-            )
 
     async def get_categories(self, location: str) -> Categories:
-        await self.set_country(location)
         prompt_template = ChatPromptTemplate(
             [
                 ("system", SYSTEM_MESSAGE_TEMPLATE),
@@ -160,7 +100,6 @@ class TripAgent:
                 ),
             ]
         )
-
         recommender = self.chat_openai_factory.create(
             top_p=0.9,
             model_name="gpt-4o",
@@ -168,7 +107,6 @@ class TripAgent:
         chain = prompt_template | recommender
         categoreis = await chain.ainvoke(
             {
-                "recommender_country": self.country,
                 "location": location,
             }
         )
@@ -177,16 +115,10 @@ class TripAgent:
     async def get_recommendations(
         self,
         n_recommendations: int,
-        trip_days: int,
-        people_count: int,
-        location: str,
-        budget: Optional[float] = None,
-        interests: Optional[str] = None,
-    ) -> List[Dict]:
-        interests = f"{DEFAULT_CATEGORIES}, {interests}"
+        trip_preference: TripPreference,
+    ) -> List[Attraction]:
+        interests = f"{DEFAULT_CATEGORIES}, {", ".join(trip_preference.interests)}"
         n_recommendations = max(n_recommendations, 3)
-        await self.set_country(location)
-        # Generate the first-pass recommendations.
         prompt_template = ChatPromptTemplate(
             [
                 ("system", SYSTEM_MESSAGE_TEMPLATE),
@@ -196,50 +128,49 @@ class TripAgent:
         recommender = self.chat_openai_factory.create(
             top_p=0.95,
             model_name="gpt-4o",
-        )
-        chain = prompt_template | recommender
-        firstpass_recommendations = await chain.ainvoke(
-            input={
-                "recommender_country": self.country,
-                "n_recommendations": n_recommendations,
-                "trip_days": trip_days,
-                "people_count": people_count,
-                "location": location,
-                "budget": budget,
-                "interests": interests,
-            }
-        )
-        # Verify the recommendations follow the criteria.
-        prompt_template = ChatPromptTemplate(
-            [
-                ("system", SYSTEM_MESSAGE_TEMPLATE),
-                ("human", RECOMMENDATION_VERIFICATION_PROMPT),
-            ]
-        )
-        knowledge_fn = self.chat_openai_factory.create(
-            temperature=0, model_name="gpt-4o"
-        )
-        verifed_recommendations = await prompt_template.pipe(knowledge_fn).ainvoke(
-            input={
-                "recommender_country": self.country,
-                "firstpass_recommendations": firstpass_recommendations.content,
-                "interests": interests,
-            }
-        )
-        # Extract the verfied recoomendations with all properties we want.
-        prompt_template = ChatPromptTemplate(
-            [
-                ("system", SYSTEM_MESSAGE_TEMPLATE),
-                ("human", VERFIED_RECOMMENDATION_EXTRACT_PROMPT),
-            ]
-        )
-        knowledge_fn = self.chat_openai_factory.create(
-            model_name="gpt-4o"
         ).with_structured_output(TripRecommendations)
-        recommendations = await prompt_template.pipe(knowledge_fn).ainvoke(
+        chain = prompt_template | recommender
+        recommendations = await chain.ainvoke(
             input={
-                "recommender_country": self.country,
-                "verifed_recommendations": verifed_recommendations.content,
+                "n_recommendations": n_recommendations,
+                "trip_days": trip_preference.trip_days,
+                "people_count": trip_preference.people_count,
+                "location": trip_preference.location,
+                "budget": trip_preference.budget,
+                "interests": interests,
             }
         )
-        return recommendations
+        return recommendations.recommendations
+
+    async def get_itinerary(
+        self,
+        recommendations: List[Attraction],
+        trip_preference: TripPreference,
+    ) -> str:
+        """Generate a detailed itinerary based on the recommendations."""
+        interests = f"{DEFAULT_CATEGORIES}, {", ".join(trip_preference.interests)}"
+        recommendations_str = ""
+        for rec in recommendations:
+            recommendations_str += str(rec) + "\n"
+        prompt_template = ChatPromptTemplate(
+            [
+                ("system", SYSTEM_MESSAGE_TEMPLATE),
+                ("human", ITINERARY_PROMPT),
+            ],
+        )
+        planner = self.chat_openai_factory.create(
+            top_p=0.95,
+            model_name="gpt-4o",
+        )
+        chain = prompt_template | planner
+        itinerary = await chain.ainvoke(
+            input={
+                "recommendations": recommendations_str,
+                "trip_days": trip_preference.trip_days,
+                "people_count": trip_preference.people_count,
+                "location": trip_preference.location,
+                "budget": trip_preference.budget,
+                "interests": interests,
+            }
+        )
+        return itinerary.content
