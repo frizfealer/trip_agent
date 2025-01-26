@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Trip Planner</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        .recommendation {
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            padding: 10px;
+            margin: 10px 0;
+            background-color: #f9f9f9;
+        }
+        .recommendation h3 {
+            margin: 0;
+            font-size: 18px;
+        }
+        .recommendation p {
+            margin: 5px 0;
+        }
+        .recommendation.selected {
+            background-color: #4caf50;
+            color: white;
+            border: 1px solid #3e8e41;
+        }
+        .highlight {
+            font-weight: bold;
+            color: #007bff;
+        }
+        .selected {
+            background-color: #4caf50;
+            color: white;
+            border: 1px solid #3e8e41;
+        }
+        #submitRecommendations {
+            margin-top: 20px;
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        #submitRecommendations:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <h1>Plan Your Trip</h1>
+    <label for="city">Enter the city you want to visit:</label>
+    <input type="text" id="city" name="city" />
+    <button id="getCategories">Get Categories</button>
+    
+    <div id="categories"></div>
+    
+    <label for="peopleCount">Number of People:</label>
+    <select id="peopleCount">
+        <script>
+            for (let i = 1; i <= 12; i++) {
+                document.write(`<option value="${i}">${i}</option>`);
+            }
+        </script>
+    </select>
+    
+    <label for="tripDays">Number of Trip Days:</label>
+    <select id="tripDays">
+        <script>
+            for (let i = 1; i <= 15; i++) {
+                document.write(`<option value="${i}">${i}</option>`);
+            }
+        </script>
+    </select>
+    
+    <label for="budget">Budget (USD):</label>
+    <input type="number" id="budget" name="budget" placeholder="Enter your budget" />
+    
+    <button id="confirm">Confirm</button>
+    <div id="loading" style="display: none;">Loading recommendations...</div>
+    <div id="recommendations"></div>
+    <button id="submitRecommendations" style="display: none;">Submit Recommendations</button>
+    <script>
+        $(document).ready(function () {
+            let selectedCategories = [];
+            let selectedRecommendations = [];
+            let allRecommendations = [];
+            
+            $('#getCategories').on('click', function () {
+                const city = $('#city').val();
+                if (!city) {
+                    alert('Please enter a city');
+                    return;
+                }
+                $.ajax({
+                    url: '/get_categories',
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ city }),
+                    success: function (response) {
+                        const categories = response.categories;
+                        $('#categories').empty();
+                        categories.forEach((category) => {
+                            $('#categories').append(
+                                `<button class="category" data-category="${category}">${category}</button>`
+                            );
+                        });
+                        $('.category').on('click', function () {
+                            const selected = $(this).data('category');
+                            if (selectedCategories.includes(selected)) {
+                                selectedCategories = selectedCategories.filter(
+                                    (cat) => cat !== selected
+                                );
+                                $(this).removeClass('selected');
+                            } else {
+                                selectedCategories.push(selected);
+                                $(this).addClass('selected');
+                            }
+                        });
+                    },
+                });
+            });
+
+            $('#confirm').on('click', function () {
+                const peopleCount = parseInt($('#peopleCount').val());
+                const tripDays = parseInt($('#tripDays').val());
+                const budget = parseFloat($('#budget').val());
+                const location = $('#city').val();
+
+                if (!selectedCategories.length) {
+                    alert('Please select at least one category');
+                    return;
+                }
+                if (!location || isNaN(peopleCount) || isNaN(tripDays) || isNaN(budget)) {
+                    alert('Please fill in all required fields');
+                    return;
+                }
+
+                $('#loading').show(); // Show loading indicator
+                $.ajax({
+                    url: '/submit_categories',
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({
+                        categories: selectedCategories,
+                        peopleCount: peopleCount,
+                        tripDays: tripDays,
+                        budget: budget,
+                        location: location
+                    }),
+                    success: function (response) {
+                        console.log("Recommendations received:", response);
+                        $('#loading').hide(); // Hide loading indicator
+                        allRecommendations = response.recommendations; 
+                        $('#recommendations').empty();
+                        allRecommendations.forEach((rec, index) => {
+                            console.log("Rendering recommendation:", rec);
+                            $('#recommendations').append(`
+                                <div class="recommendation data-index="${index}">
+                                    <h3>${rec.name}</h3>
+                                    <p><span class="highlight">Category:</span> ${rec.category}</p>
+                                    <p><span class="highlight">Agenda:</span> ${rec.agenda}</p>
+                                    <p><span class="highlight">Website:</span> <a href=${rec.website_uri}>link</a></p>
+                                    <p><span class="highlight">Googlemap-link:</span> <a href=${rec.google_maps_place_link}>link</a> </p>
+                                    <p><span class="highlight">Opening-hours:</span> ${rec.regular_opening_hours}</p>
+                                    <p><span class="highlight">Estimated cost:</span> $${rec.cost}</p>
+                                    <p><span class="highlight">Rating:</span> ${rec.rating}</p>
+                                </div>
+                            `);
+                        });
+
+                        $('.recommendation').on('click', function () {
+                            const index = parseInt($(this).attr('data-index'), 10); // Ensure index is parsed as an integer
+                            if (!isNaN(index)) {
+                                if (selectedRecommendations.includes(index)) {
+                                    // Remove from selectedRecommendations
+                                    selectedRecommendations = selectedRecommendations.filter(i => i !== index);
+                                    $(this).removeClass('selected');
+                                } else {
+                                    // Add to selectedRecommendations
+                                    selectedRecommendations.push(index);
+                                    $(this).addClass('selected');
+                                }
+                            } else {
+                                console.error("Invalid data-index value:", index);
+                            }
+                            console.log("Updated selectedRecommendations:", selectedRecommendations); // Debug log
+                        });
+
+                        $('#submitRecommendations').show();
+                    },
+
+                    error: function (xhr, status, error) {
+                        $('#loading').hide(); // Hide loading indicator
+                        alert(`Failed to fetch recommendations: ${xhr.responseJSON.error}`);
+                    }
+                });
+            });
+        
+            $('#submitRecommendations').on('click', function () {
+                if (!selectedRecommendations.length) {
+                    alert('Please select at least one recommendation');
+                    return;
+                }
+
+                const selectedRecs = selectedRecommendations.map((index) => allRecommendations[index]);
+                console.log("index:", selectedRecommendations);
+                console.log(allRecommendations);
+                $('#loading').show(); // Show loading indicator
+                $.ajax({
+                    url: '/submit_recommendations',
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ recommendations: selectedRecs }),
+                    success: function (response) {
+                        $('#loading').hide(); // Hide loading indicator
+                        alert('Itinerary generated successfully!');
+                        console.log(response.itinerary);
+                    },
+                    error: function (xhr, status, error) {
+                        $('#loading').hide(); // Hide loading indicator
+                        alert('Failed to generate itinerary. Please try again.');
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>
