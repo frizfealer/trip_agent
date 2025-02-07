@@ -53,17 +53,21 @@ def create_trip_planner():
                 desc=f"Formatting recommendation {i}/{total_recs}",
             )
             output += f"""
-# 🏛️ {i}. {rec.name} 
+ # 🏛️ {i}. {rec.name} 
  **📝 Agenda**: {rec.agenda} <br>
  **🎯 Category**: {rec.category} <br>
- **⭐ Rating**: {rec.rating}/5 <br>
- **🌐 Website**: {rec.website_uri} <br>
- **📍 Maps**: {rec.google_maps_place_link} <br>
  **💰 Estimated Cost**: ${rec.cost} <br>
  **⏰ Duration**: {rec.duration}h <br>
  **👥 Group Size**: {rec.peopleCount} <br>
  **📅 Best Time**: {rec.time} <br>
- **🕒 Hours**: {rec.regular_opening_hours} <br>
+ **⭐ Rating**: {rec.rating}/5 <br>
+{f'**🌐 Website**: {rec.website_uri} <br>' if rec.website_uri != 'NA' else ''}
+{f'**📄 Editorial Summary**: {rec.editorial_summary} <br>' if rec.editorial_summary != 'NA' else ''}
+ {f'**🕒 Hours**: {rec.regular_opening_hours} <br>' if rec.regular_opening_hours != 'NA' else ''}
+ **📸 Photos**:<br>
+<div style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: start;">
+{"".join(f'<div style="flex: 0 0 200px;"><img src="{photo}" alt="Photo of {rec.name}" style="width: 100%; height: 150px; object-fit: cover;"></div>' for photo in rec.photos) if rec.photos else ""}
+</div>
 
  ---
 """
@@ -90,7 +94,9 @@ def create_trip_planner():
         )
         progress(0, desc="Generating itinerary...")
         output = await agent.get_itinerary_with_reflection(
-            recommendations=recommendations_str, trip_preference=preferences
+            recommendations=recommendations_str,
+            trip_preference=preferences,
+            reflection_num=2,
         )
         return output
 

@@ -25,34 +25,47 @@ class ProposedAttraction(BaseModel):
     """A single attraction/activity recommendation proposed by the LLM."""
 
     name: str = Field(description="Name of the attraction/activity")
-    duration: int = Field(
+    duration: float = Field(
         description="Recommended duration, in hours. If two days, put 48 hours."
     )
-    peopleCount: int = Field(description="Suitable group size.")
-    cost: int = Field(description="Estimated cost, in USD dollars.")
     category: str = Field(
-        description="Category of interests. Can be one or more categories."
+        description="Category of interests. Can be one or more categories, at most three categories."
     )
-    agenda: str = Field(
-        description="Agenda highlights (key activities, pro tips, or unique insights)"
-    )
+    # agenda: str = Field(
+    #     description="Agenda highlights in one sentence."
+    # )
     time: str = Field(description="Best time to visit (e.g. morning, evening)")
 
 
 class RefinedAttraction(ProposedAttraction):
     """A single attraction/activity recommendation to tell users, after verification."""
 
-    rating: float = Field(description="Rating of the attraction from Google reviews.")
+class RefinedAttraction(ProposedAttraction):
+    """A single attraction/activity recommendation to tell users, after verification."""
+
+    rating: Union[float, None] = Field(
+        default=None,
+        description="Rating of the attraction from Google reviews."
+    )
     regular_opening_hours: str = Field(
+        default="",
         description="Regular opening hours of the attraction."
     )
-    formated_address: str = Field(description="The address of the attraction.")
-    website_uri: str = Field(description="The website of the attraction.")
-    google_maps_place_link: str = Field(
-        description="The google maps link of the attraction."
+    formatted_address: str = Field(
+        default="",
+        description="The address of the attraction."
     )
-    google_map_photo_uri: str = Field(
-        description="The google map photo uri of the attraction."
+    website_uri: str = Field(
+        default="",
+        description="The website of the attraction."
+    )
+    editorial_summary: str = Field(
+        default="",
+        description="The editorial summary of the attraction."
+    )
+    photos: List[str] = Field(
+        default_factory=list,
+        description="A list of photos for the attraction."
     )
 
 
@@ -196,7 +209,7 @@ class TripAgent:
         )
         recommender = self.chat_openai_factory.create(
             top_p=0.95,
-            model_name="gpt-4o",
+            model_name="gpt-3.5-turbo",
         ).with_structured_output(Categories)
         chain = prompt_template | recommender
         categoreis = await chain.ainvoke(
@@ -247,6 +260,11 @@ class TripAgent:
                 f"{proposed_attraction.name} in {trip_preference.location}"
             )
             if search_res:
+                print(search_res.keys())
+                search_res = {
+                    k: search_res[k]
+                    for k in list(RefinedAttraction.model_fields.keys())[7:]
+                }
                 refined_attractions.append(
                     RefinedAttraction(**(proposed_attraction.dict() | search_res))
                 )
@@ -334,7 +352,7 @@ class TripAgent:
 
         def should_continue(state: State):
             # Larger than 6 because we have one user's request at the beginning.
-            if len(state["messages"]) > 6:
+            if len(state["messages"]) > reflection_num * 2:
                 # End after 3 iterations
                 return END
             return "reflect"

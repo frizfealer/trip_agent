@@ -1,0 +1,11 @@
+.env
+.DS_Store
+.gradio/
+# python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+*.pyz
+.ipynb_checkpoints/
