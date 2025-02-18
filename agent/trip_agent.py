@@ -34,6 +34,7 @@ class ProposedAttraction(BaseModel):
     # agenda: str = Field(
     #     description="Agenda highlights in one sentence."
     # )
+    cost: int = Field(description="Price of the attraction/activity in USD")
     time: str = Field(description="Best time to visit (e.g. morning, evening)")
 
 
