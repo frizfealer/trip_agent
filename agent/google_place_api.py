@@ -110,8 +110,8 @@ class GooglePlaceAPI:
         if fields is None:
             fields = (
                 "nextPageToken,places.displayName,places.formattedAddress,places.rating,"
-                "places.websiteUri,places.googleMapsLinks,places.photos,"
-                "places.types,places.regularOpeningHours,places.reviews,"
+                "places.websiteUri,places.googleMapsUri,places.photos,"
+                "places.types,places.currentOpeningHours,places.regularOpeningHours,places.reviews,"
                 "places.editorialSummary"
             )
 
@@ -164,12 +164,13 @@ class GooglePlaceAPI:
         formatted_address = place.get("formattedAddress", "NA")
         rating = float(place.get("rating", "nan"))
         website_uri = place.get("websiteUri", "NA")
-        regular_opening_hours = place.get("regularOpeningHours", {}).get(
-            "weekdayDescriptions", []
-        )
-        regular_opening_hours = (
-            ", ".join(regular_opening_hours) if regular_opening_hours else "NA"
-        )
+        
+        # Get regular opening hours with proper fallback to current opening hours
+        opening_hours = place.get("regularOpeningHours", {})
+        if not opening_hours:
+            opening_hours = place.get("currentOpeningHours", {})
+        weekday_descriptions = opening_hours.get("weekdayDescriptions", [])
+        regular_opening_hours = ", ".join(weekday_descriptions) if weekday_descriptions else "NA"
         types = place.get("types", [])
         # format List[dict], fields: 'name', 'relativePublishTimeDescription', 'rating', 'text', 'originalText',
         # 'authorAttribution', 'publishTime', 'flagContentUri', 'googleMapsUri'

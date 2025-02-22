@@ -52,7 +52,7 @@ def test_event2():
 def test_copy(itinerary, test_event1):
     """Test that copying an itinerary creates a deep copy with independent data."""
     # Schedule an event in the original itinerary
-    itinerary.schedule_event(test_event1, day=0, start_slot=16)
+    itinerary.schedule_event(test_event1, day=0, start_slot=16, duration=test_event1.duration)
     
     # Create a copy
     copied_itinerary = itinerary.copy()
@@ -74,7 +74,7 @@ def test_copy(itinerary, test_event1):
     )
     
     # Schedule the new event in the copy only
-    copied_itinerary.schedule_event(new_event, day=1, start_slot=12)
+    copied_itinerary.schedule_event(new_event, day=1, start_slot=12, duration=new_event.duration)
     
     # Verify that the original itinerary is unchanged
     assert len(itinerary.scheduled_events) != len(copied_itinerary.scheduled_events), \
@@ -83,20 +83,20 @@ def test_copy(itinerary, test_event1):
 def test_schedule_event(itinerary, test_event1, test_event2):
     """Test scheduling an event with various conditions."""
     # Test successful scheduling
-    success = itinerary.schedule_event(test_event1, day=0, start_slot=16)
+    success = itinerary.schedule_event(test_event1, day=0, start_slot=16, duration=test_event1.duration)
     assert success, "Event should be scheduled successfully"
     assert test_event1.id in itinerary.scheduled_events
     
     # Test scheduling on the wrong day
-    success = itinerary.schedule_event(test_event1, day=3, start_slot=16)
+    success = itinerary.schedule_event(test_event1, day=3, start_slot=16, duration=test_event1.duration)
     assert not success, "Should not be able to schedule event on day 3"
 
     # Test scheduling same event twice (should fail)
-    success = itinerary.schedule_event(test_event1, day=0, start_slot=20)
+    success = itinerary.schedule_event(test_event1, day=0, start_slot=20, duration=test_event1.duration)
     assert not success, "Should not be able to schedule the same event twice"
 
     # Test scheduling another event on a valid day/time (at a different time slot)
-    success = itinerary.schedule_event(test_event2, day=2, start_slot=24)  # Using slot 24 (12:00) instead of 16
+    success = itinerary.schedule_event(test_event2, day=2, start_slot=24, duration=test_event2.duration)  # Using slot 24 (12:00) instead of 16
     assert not success, "Should not be able to schedule event2 on day 2 (Wednesday) at an available time slot"
     
     # Test scheduling outside operating hours
@@ -119,7 +119,7 @@ def test_schedule_event(itinerary, test_event1, test_event2):
         bonus_end=20,
     )
     
-    success = itinerary.schedule_event(closed_day_event, day=0, start_slot=16)
+    success = itinerary.schedule_event(closed_day_event, day=0, start_slot=16, duration=closed_day_event.duration)
     assert not success, "Should not be able to schedule event on closed day"
 
 
@@ -183,7 +183,7 @@ def test_get_event_max_duration():
         opening_hours={Day.MONDAY: (0, 48)},
         base_exp=1.0
     )
-    itinerary.schedule_event(blocking_event, day=0, start_slot=10)
+    itinerary.schedule_event(blocking_event, day=0, start_slot=10, duration=blocking_event.duration)
     
     # Try to get max duration for a slot that would run into the blocking event
     max_duration = itinerary.get_event_max_duration(event, day=0, start_slot=8)

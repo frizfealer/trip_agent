@@ -1,4 +1,8 @@
-from typing import Annotated, List, Union
+from typing import Annotated, List, Union, Dict, Optional, Tuple
+from datetime import datetime
+from enum import Enum
+import time
+import logging
 
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -7,13 +11,31 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
+from agent.scheduler.greedy_itinerary_scheduler import GreedyItineraryScheduler
 
 from agent.chat_openai_factory import ChatOpenAIFactory
 from agent.google_place_api import GooglePlaceAPI
 from agent.trip_preference import TripPreference
+from agent.scheduler.itinerary import Event, Day
+from agent.utils.travel_time import get_travel_time_matrix
 
 DEFAULT_CATEGORIES = "Must-visit"
+from typing import Annotated
 
+from typing_extensions import TypedDict
+
+from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import add_messages
+
+
+class State(TypedDict):
+    # Messages have the type "list". The `add_messages` function
+    # in the annotation defines how this state key should be updated
+    # (in this case, it appends messages to the list, rather than overwriting them)
+    messages: Annotated[list, add_messages]
+
+
+graph_builder = StateGraph(State)
 
 class Categories(BaseModel):
     """A list of categories of interests for visitors to a location."""
@@ -36,10 +58,6 @@ class ProposedAttraction(BaseModel):
     # )
     cost: int = Field(description="Price of the attraction/activity in USD")
     time: str = Field(description="Best time to visit (e.g. morning, evening)")
-
-
-class RefinedAttraction(ProposedAttraction):
-    """A single attraction/activity recommendation to tell users, after verification."""
 
 class RefinedAttraction(ProposedAttraction):
     """A single attraction/activity recommendation to tell users, after verification."""
@@ -76,6 +94,15 @@ class TripRecommendations(BaseModel):
     proposed_attraction: List[ProposedAttraction]
 
 
+class ItineraryWeightParameters(BaseModel):
+    w_xp: float = Field(description="Weight for experience points (higher = prefer high-XP events)")
+    w_count: float = Field(description="Weight for event count bonus (higher = prefer more events)")
+    w_cost: float = Field(description="Weight for event cost penalty (higher = avoid expensive events)")
+    w_dur: float = Field(description="Weight for event duration penalty (higher = prefer shorter events)")
+    w_travel: float = Field(description="Weight for travel cost penalty (higher = penalize expensive travel cost)")
+    w_time: float = Field(description="Weight for travel time penalty (higher = penalize longer travel times)")
+
+
 class ActivityDetail(BaseModel):
     duration: str = Field(description="Duration of the activity, example: '3 hours'")
     agenda: str = Field(description="Description of the activity")
@@ -93,15 +120,6 @@ class Activity(BaseModel):
         description="Location of the activity, example: 'Zhongzheng District'"
     )
     details: ActivityDetail
-
-
-class Day(BaseModel):
-    day_title: str = Field(
-        description="Title of the day, example: 'Day 1: Cultural and Historical Exploration'"
-    )
-    activities: List[Activity] = Field(
-        description="List of activities planned for the day"
-    )
 
 
 class TripItinerary(BaseModel):
@@ -260,16 +278,129 @@ class TripAgent:
             search_res = self.google_place_api.text_search(
                 f"{proposed_attraction.name} in {trip_preference.location}"
             )
+            print(search_res["rating"])
             if search_res:
-                print(search_res.keys())
                 search_res = {
                     k: search_res[k]
-                    for k in list(RefinedAttraction.model_fields.keys())[7:]
+                    for k in list(RefinedAttraction.model_fields.keys())[5:]
                 }
                 refined_attractions.append(
                     RefinedAttraction(**(proposed_attraction.dict() | search_res))
                 )
         return refined_attractions
+
+    async def get_itinerary_with_greedy_scheduler(
+        self,
+        recommendations: List[RefinedAttraction],
+        trip_days: int,
+        budget: int,
+        start_day: str = "Monday",
+        travel_type: str="driving",
+        itinerary_description: str = ""
+    ) -> str:
+        """Generate a detailed itinerary based on the recommendations."""
+        # first convert the recommendations to events
+        events = []
+        for rec in recommendations:
+            if rec.regular_opening_hours == "NA":
+                opening_hours = None
+            else:
+                opening_hours = parse_regular_opening_hours(rec.regular_opening_hours)
+            
+            events.append(Event(
+                name=rec.name,
+                id=rec.name,
+                duration=int(rec.duration*2),  # Convert hours to 30-min slots
+                opening_hours=opening_hours,
+                cost=rec.cost,
+                base_exp=rec.rating if rec.rating else 0.0,
+            ))
+        
+        # Build travel time matrix using actual travel times
+        locations = [event.name for event in events] 
+        travel_cost_matrix = {}
+        travel_time_matrix = {}
+        
+        try:
+            raw_travel_time_matrix = get_travel_time_matrix(locations, travel_type)
+            # Convert minutes to 30-min slots, rounding to nearest slot
+            for (origin, destination), minutes in raw_travel_time_matrix.items():
+                travel_time_matrix[(origin, destination)] = min(round(minutes / 30), 1)
+            # Add hotel connections
+            for location in locations:
+                travel_time_matrix[("hotel", location)] = 1
+                travel_time_matrix[(location, "hotel")] = 1
+        except Exception as e:
+            logging.warning(f"Could not get travel time matrix: {e}")
+            # Fallback to default travel times
+            for origin in locations + ["hotel"]:
+                for destination in locations + ["hotel"]:
+                    if origin != destination:
+                        travel_time_matrix[(origin, destination)] = 1
+                        travel_time_matrix[(destination, origin)] = 1
+        travel_cost_matrix = travel_time_matrix.copy()
+        logging.info(f"Travel time matrix (in 30-min slots): {travel_time_matrix}")
+        
+
+        system_message =  (
+            "You are a travel planning assistant that needs to set weight parameters for a greedy scheduling algorithm. "
+            "You are given a list of events and a travel cost matrix."
+            "Here are the events:"
+            "{events}"
+            "Here is the travel cost matrix:"
+            "{travel_cost_matrix}"
+            "Based on the following travel preference description, generate appropriate weight values for the following parameters:\n\n"
+            "- w_xp: Weight for experience points (higher = prefer high-XP events)\n"
+            "- w_count: Weight for event count bonus (higher = prefer more events)\n"
+            "- w_cost: Weight for event cost penalty (higher = avoid expensive events)\n"
+            "- w_dur: Weight for event duration penalty (higher = prefer shorter events)\n"
+            "- w_travel: Weight for travel cost penalty (higher = penalize expensive travel cost)\n"
+            "- w_time: Weight for the overall time factor (higher = prioritize events that fit in available time)\n\n"
+        )
+        prompt_template = ChatPromptTemplate(
+            [
+                ("system", system_message),
+                ("human", "{itinerary_description} What are the weight parameters for the greedy scheduling algorithm?"),
+            ],
+        )
+        recommender = self.chat_openai_factory.create(
+            top_p=0.95,
+            model_name="gpt-4o",
+        ).with_structured_output(ItineraryWeightParameters)
+        chain = prompt_template | recommender
+        weights = await chain.ainvoke(
+            input={
+                "events": events,
+                "travel_cost_matrix": travel_cost_matrix,
+                "itinerary_description": itinerary_description
+            }
+        )
+        logging.info(f"Weights: {weights}")
+        # Convert weights Pydantic model to dictionary
+        weights_dict = {
+            'w_xp': weights.w_xp,
+            'w_count': weights.w_count,
+            'w_cost': weights.w_cost,
+            'w_dur': weights.w_dur,
+            'w_travel': weights.w_travel,
+            'w_time': weights.w_time
+        }
+        
+        scheduler = GreedyItineraryScheduler(
+            events=events,
+            start_day=Day[start_day.upper()],
+            num_days=trip_days,
+            total_budget=budget,
+            travel_cost_matrix=travel_cost_matrix,
+            travel_time_matrix=travel_time_matrix,
+            score_fn_weights=weights_dict
+        )
+        
+        itinerary = scheduler.greedy_schedule() 
+        scheduler.score_fn_weights = {"w_xp": 0.0, "w_count": 0.0, "w_cost": 1.0, "w_dur": 0.0, "w_travel": 0.0, "w_time": 0.0}
+        logging.info(-scheduler.score_itinerary(itinerary))
+        return str(itinerary)
+
 
     async def get_itinerary_with_reflection(
         self,
@@ -381,3 +512,57 @@ class TripAgent:
             config={"configurable": {"thread_id": "1"}},
         )
         return itinerary["messages"][-1].content
+
+def parse_regular_opening_hours(opening_hours_str: str) -> Dict[Day, Optional[Tuple[int, int]]]:
+    """Parse opening hours string into a dictionary mapping Day to (start_slot, end_slot) tuples.
+    
+    Args:
+        opening_hours_str: String in format "Monday: 9:00 AM – 6:30 PM, Tuesday: 9:00 AM – 6:30 PM, ..."
+        Can contain Unicode whitespace characters like \u202f (NARROW NO-BREAK SPACE) and \u2009 (THIN SPACE)
+    
+    Returns:
+        Dictionary mapping Day enum values to tuples of (start_slot, end_slot)
+        where slots are 0-47 (each slot represents 30 minutes, 0=00:00, 47=23:30)
+    """
+    # Initialize result dictionary with None values
+    result = {day: None for day in Day}
+    
+    # Split into individual day strings
+    day_strings = opening_hours_str.split(", ")
+    
+    for day_str in day_strings:
+        # Split day and hours
+        day_name, hours = day_str.split(": ")
+        day_enum = Day[day_name.upper()]
+        
+        # Handle "Closed" case
+        if hours.strip() == "Closed":
+            result[day_enum] = None
+            continue
+            
+        # Split start and end times
+        try:
+            # Replace Unicode whitespace characters with regular space
+            hours = hours.replace('\u202f', ' ').replace('\u2009', ' ')
+            start_time_str, end_time_str = hours.split("–")
+            
+            # Clean up any extra spaces and standardize format
+            start_time_str = ' '.join(start_time_str.split())
+            end_time_str = ' '.join(end_time_str.split())
+            
+            # Parse start and end times
+            start_time = datetime.strptime(start_time_str, "%I:%M %p")
+            end_time = datetime.strptime(end_time_str, "%I:%M %p")
+            
+            # Convert to slots (each slot is 30 minutes)
+            start_slot = start_time.hour * 2 + (start_time.minute // 30)
+            end_slot = end_time.hour * 2 + (end_time.minute // 30)
+            if end_slot < start_slot:
+                end_slot = 47
+            
+            result[day_enum] = (start_slot, end_slot)
+        except ValueError as e:
+            print(f"Error parsing hours for {day_name}: {hours}")
+            result[day_enum] = None
+    
+    return result

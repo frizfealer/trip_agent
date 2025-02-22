@@ -26,19 +26,46 @@ def generate_unique_id() -> str:
     return str(uuid.uuid4())
 
 class Event:
-    def __init__(self, name: str, cost: float, duration: int, opening_hours: Dict[Day, Optional[Tuple[int, int]]], 
-                 base_exp: float, bonus_exp: float = 0.0, bonus_start: Optional[int] = None, 
+    def __init__(self, name: str, cost: float, duration: int, 
+                 base_exp: Optional[float], opening_hours: Optional[Dict[Day, Optional[Tuple[int, int]]]], bonus_exp: float = 0.0, bonus_start: Optional[int] = None, 
                  bonus_end: Optional[int] = None, id: Optional[str] = None):
         self.name = name
         self.cost = cost
         self.duration = duration
-        self.opening_hours = opening_hours
-        self.base_exp = base_exp
+        if opening_hours is None:
+            self.opening_hours = {day: (20, 35) for day in Day}
+        else:
+            self.opening_hours = opening_hours
+        if base_exp is None:
+            self.base_exp = 4.0
+        else:
+            self.base_exp = base_exp
         self.bonus_exp = bonus_exp
         self.bonus_start = bonus_start
         self.bonus_end = bonus_end
         # Use generate_unique_id() instead of name as default ID
         self.id = id if id is not None else generate_unique_id()
+
+    def __str__(self) -> str:
+        """Return a human-readable string representation of the event."""
+        # Format opening hours
+        hours_str = "\n".join(
+            f"  {day.name}: {f'{times[0]//2:02d}:{(times[0]%2)*30:02d}-{times[1]//2:02d}:{(times[1]%2)*30:02d}' if times is not None else 'Closed'}"
+            for day, times in self.opening_hours.items()
+        )
+        
+        # Format bonus time if applicable
+        bonus_time = ""
+        if self.bonus_exp > 0 and self.bonus_start is not None and self.bonus_end is not None:
+            bonus_time = f"\nBonus Time: {self.bonus_start//2:02d}:{(self.bonus_start%2)*30:02d}-{self.bonus_end//2:02d}:{(self.bonus_end%2)*30:02d}"
+            bonus_time += f"\nBonus EXP: {self.bonus_exp}"
+
+        return (f"Event: {self.name} (ID: {self.id})\n"
+                f"Duration: {self.duration//2}h{(self.duration%2)*30}m\n"
+                f"Cost: ${self.cost:.2f}\n"
+                f"Base EXP: {self.base_exp}"
+                f"{bonus_time}\n"
+                f"Opening Hours:\n{hours_str}")
 
     def __hash__(self):
         return hash(self.id)
@@ -127,25 +154,22 @@ class Itinerary:
         return max_duration
 
     def remove_event(self, event_id: str) -> bool:
-        """Remove an event from the schedule."""
         if event_id not in self.scheduled_events:
             logger.warning(f"Attempted to remove non-existent event with ID: {event_id}")
             return False
-        # Get the scheduled slots for this event
-        for day, slots in self.scheduled_events[event_id]:
-            # Clear all slots for this event
-            for slot in slots:
-                self.days[day][slot] = None     
-        # Remove from scheduled events
+
+        day, start_slot, end_slot = self.scheduled_events[event_id]
+        for slot in range(start_slot, end_slot):
+            self.days[day][slot] = None
         del self.scheduled_events[event_id]
         logger.info(f"Successfully removed event with ID: {event_id}")
         return True
 
-    def print_schedule(self) -> None:
-        """Print a human-readable schedule."""
-        logger.info("Printing schedule:")
+    def __str__(self) -> str:
+        """Return a human-readable schedule."""
+        schedule_str = ""
         for day in range(self.num_days):
-            print(f"\nDay {day + 1}:")
+            schedule_str += f"\nDay {day + 1}:\n"
             current_event = None
             start_slot = None
             for slot in range(48):
@@ -153,12 +177,13 @@ class Itinerary:
                 if event != current_event:
                     if current_event is not None:
                         time_start = f"{start_slot // 2:02d}:{(start_slot % 2) * 30:02d}"
-                        time_end = f"{slot // 2:02d}:{(slot % 2) * 30:02d}"
-                        print(f"  {time_start}-{time_end}: {current_event.id}")
+                        time_end = f"{(slot) // 2:02d}:{((slot) % 2) * 30:02d}"
+                        schedule_str += f"  {time_start}-{time_end}: {current_event.id}\n"
                     current_event = event
                     start_slot = slot
             # Handle the last event of the day
             if current_event is not None:
                 time_start = f"{start_slot // 2:02d}:{(start_slot % 2) * 30:02d}"
-                time_end = f"24:00" if slot == 47 else f"{(slot+1) // 2:02d}:{((slot+1) % 2) * 30:02d}"
-                print(f"  {time_start}-{time_end}: {current_event.id}")
+                time_end = f"{(slot) // 2:02d}:{((slot) % 2) * 30:02d}"
+                schedule_str += f"  {time_start}-{time_end}: {current_event.id}\n"
+        return schedule_str
