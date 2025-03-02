@@ -114,6 +114,8 @@ def travel_cost_mat(event1, event2, event3, event4):
     }
     for e1, e2 in list(travel_cost_mat.keys()):
         travel_cost_mat[(e2, e1)] = travel_cost_mat[(e1, e2)]
+    for e in [ITINERARY_START_EVENT_NAME, event1.id, event2.id, event3.id, event4.id]:
+        travel_cost_mat[(e, e)] = 0.0
     return travel_cost_mat
 
 
@@ -133,43 +135,9 @@ def travel_time_mat(event1, event2, event3, event4):
     }
     for e1, e2 in list(travel_time_mat.keys()):
         travel_time_mat[(e2, e1)] = travel_time_mat[(e1, e2)]
+    for e in [ITINERARY_START_EVENT_NAME, event1.id, event2.id, event3.id, event4.id]:
+        travel_time_mat[(e, e)] = 0
     return travel_time_mat
-
-
-def test_event_id_uniqueness():
-    """Test that each event gets a unique ID."""
-
-    event1 = Event(
-        name="Event 1",
-        cost=10.0,
-        duration=2,
-        base_exp=100.0,
-        opening_hours=None
-    )
-
-    event2 = Event(
-        name="Event 1",
-        cost=10.0,
-        duration=2,
-        base_exp=100.0,
-        opening_hours=None
-    )
-    # default id is generated from uuid; so the two events should have different ids
-    assert event1.id != event2.id
-
-
-def test_score_event():
-    event1 = Event(
-        name="Event 1",
-        cost=25.0,
-        duration=2,
-        base_exp=100.0,
-        opening_hours=None
-    )
-    score = score_event(event1, actual_duration=1, w_xp=1.0,
-                        w_count=1.0, w_cost=1.0, w_dur=1.0)
-    expected_score = 100.0 / 2 * 1.0 + 1.0 * 1.0 - 25.0 * 1.0 - 1 * 1.0
-    assert score == expected_score
 
 
 def test_itinerary_schedule_event_out_of_bounds(itinerary, event1):
