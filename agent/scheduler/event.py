@@ -1,5 +1,7 @@
 import logging
+import math
 import uuid
+from datetime import datetime
 from enum import IntEnum
 from typing import Dict, Optional, Tuple
 
@@ -27,25 +29,126 @@ def generate_unique_id() -> str:
     return str(uuid.uuid4())
 
 
-def convert_time_to_slot(hour: int, minute: int, day_resolution: int) -> int:
+def convert_time_to_slot(hour: int, minute: int, day_resolution: int = DEFAULT_DAY_RESOLUTION) -> int:
     """Convert a time to a slot number."""
-    unit = 24*60 // day_resolution
+    slot_minute = 24*60 // day_resolution
     # e.g. 10:30, day_resolution = 48 -> 21
-    return hour * 60 // unit + round(minute / unit)
+    return hour * 60 // slot_minute + round(minute / slot_minute)
 
 
-def convert_slot_to_time(slot: int, day_resolution: int) -> Tuple[int, int]:
+def convert_slot_to_time(slot: int, day_resolution: int = DEFAULT_DAY_RESOLUTION) -> Tuple[int, int]:
     """Convert a slot number to a time."""
-    unit = 24*60 // day_resolution
-    hour = slot * unit // 60
-    minute = (slot * unit) % 60
+    slot_minute = 24*60 // day_resolution
+    hour = slot * slot_minute // 60
+    minute = (slot * slot_minute) % 60
     return hour, minute
+
+
+def convert_hours_to_slots(hours: float, day_resolution: int = DEFAULT_DAY_RESOLUTION) -> int:
+    """Convert hours to slots."""
+    slot_minute = 24*60 // day_resolution
+    return math.ceil(hours * 60 / slot_minute)
+
+
+def convert_minutes_to_slots(minutes: int, day_resolution: int = DEFAULT_DAY_RESOLUTION) -> int:
+    """Convert minutes to slots."""
+    slot_minute = 24*60 // day_resolution
+    return math.ceil(minutes / slot_minute)
 
 
 def gen_str_from_slot(slot: int, day_resolution: int) -> str:
     """Generate a string representation of a slot."""
     hour, minute = convert_slot_to_time(slot, day_resolution)
     return f"{hour:02d}:{minute:02d}"
+
+
+def parse_regular_opening_hours(opening_hours_str: str, day_resolution: int = DEFAULT_DAY_RESOLUTION) -> Dict[Day, Optional[Tuple[int, int]]]:
+    """Parse opening hours string into a dictionary mapping Day to (start_slot, end_slot) tuples.
+
+    Args:
+        opening_hours_str: String in format "Monday: 9:00 AM – 6:30 PM, Tuesday: 9:00 AM – 6:30 PM, ..."
+        Can contain Unicode whitespace characters like \u202f (NARROW NO-BREAK SPACE) and \u2009 (THIN SPACE)
+        Can also handle "Open 24 hours" format and times without AM/PM specification
+
+    Returns:
+        Dictionary mapping Day enum values to tuples of (start_slot, end_slot) (inclusive of start, exclusive of end)
+        where slots are 0-N (each slot represents 30 minutes, 0=00:00, 47=23:30)
+    """
+    if opening_hours_str == "NA":
+        return {day: DEFAULT_OPENING_HOURS for day in Day}
+
+    slot_mins = 24 * 60 // day_resolution
+    hours_in_slots = 60 // slot_mins
+    # Initialize result dictionary with None values
+    result = {day: None for day in Day}
+
+    # Split into individual day strings
+    day_strings = opening_hours_str.split(", ")
+
+    for day_str in day_strings:
+        # Split day and hours
+        day_name, hours = day_str.split(": ")
+        day_enum = Day[day_name.strip().upper()]
+        # Handle "Closed" case
+        if hours.strip() == "Closed":
+            result[day_enum] = None
+            continue
+
+        # Handle "Open 24 hours" case
+        if "Open 24 hours" in hours:
+            # All slots for 24 hours
+            result[day_enum] = (0, day_resolution)
+            continue
+
+        # Split start and end times
+        try:
+            # Replace Unicode whitespace characters with regular space
+            hours = hours.replace('\u202f', ' ').replace('\u2009', ' ')
+            start_time_str, end_time_str = hours.split("–")
+
+            # Clean up any extra spaces and standardize format
+            start_time_str = ' '.join(start_time_str.split())
+            end_time_str = ' '.join(end_time_str.split())
+
+            # Handle times without AM/PM specification
+            def parse_time(time_str: str) -> datetime:
+                time_str = time_str.strip()
+                try:
+                    # Try parsing with AM/PM format first
+                    return datetime.strptime(time_str, "%I:%M %p")
+                except ValueError:
+                    try:
+                        # Try parsing without AM/PM, assume 24-hour format
+                        hour, minute = map(int, time_str.split(':'))
+                        time_obj = datetime.now().replace(hour=hour, minute=minute)
+                        # If end time is before start time, assume PM
+                        if "PM" in end_time_str and "AM" not in start_time_str:
+                            time_obj = time_obj.replace(hour=(hour + 12) % 24)
+                        return time_obj
+                    except ValueError:
+                        # Try parsing just the hour
+                        hour = int(time_str)
+                        time_obj = datetime.now().replace(hour=hour, minute=0)
+                        if "PM" in end_time_str and "AM" not in start_time_str:
+                            time_obj = time_obj.replace(hour=(hour + 12) % 24)
+                        return time_obj
+            start_time = parse_time(start_time_str)
+            end_time = parse_time(end_time_str)
+
+            # Convert to slots (each slot is 30 minutes)
+            start_slot = start_time.hour * hours_in_slots + \
+                (start_time.minute // slot_mins)
+            end_slot = min(day_resolution, end_time.hour * hours_in_slots +
+                           (end_time.minute // slot_mins) + 1)
+            if end_slot < start_slot:
+                end_slot = day_resolution
+
+            result[day_enum] = (start_slot, end_slot)
+        except ValueError:
+            print(f"Error parsing hours for {day_name}: {hours}")
+            result[day_enum] = None
+
+    return result
 
 
 class Event:

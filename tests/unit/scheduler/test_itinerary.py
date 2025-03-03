@@ -290,10 +290,13 @@ def test_compute_total_travel_time_and_gap_time(itinerary, event1, event2, event
         event4, day=1, start_slot=16, duration=1)
     assert status == 0
     expected_total_travel_time = 1+1+2+3+4+4
-    expected_toal_gap_time = 2 + 1
+    expected_total_gap_time = 2 + 1
     assert status == 0
-    assert itinerary.calculate_total_travel_time_and_gap_time() == (
-        expected_total_travel_time, expected_toal_gap_time)
+    total_travel_time, total_gap_in_time = itinerary.calculate_total_travel_time_and_gap_time()
+    assert total_travel_time == expected_total_travel_time
+    assert total_gap_in_time == expected_total_gap_time
+    # assert itinerary.total_travel_time == expected_total_travel_time
+    # assert itinerary.total_gap_time == expected_total_gap_time
 
 
 def test_itinerary_score(itinerary, event1, event2, event3, event4):
@@ -320,6 +323,8 @@ def test_itinerary_score(itinerary, event1, event2, event3, event4):
     total_event_score = event1_score + event2_score + event3_score + event4_score
 
     # Get travel time and gap time
+    # total_travel_time = 1+1+2+3+4+4
+    # total_gap_time = 2 + 1
     total_travel_time, total_gap_time = itinerary.calculate_total_travel_time_and_gap_time()
 
     _, total_travel_cost = itinerary.calculate_total_cost()
@@ -344,3 +349,35 @@ def test_itinerary_score(itinerary, event1, event2, event3, event4):
 
     # Update the assertion to match the actual implementation
     assert score == expected_score
+
+
+def test_unschedule_event(itinerary, event1, event2, event3, event4):
+    itinerary.budget = 200.0
+    # travel cost: (ITINERARY_START_EVENT_NAME, event1.id): 10.0,
+    # event1.cost = 25.0
+    # travel cost: (event1.id, event2.id): 5,
+    # event2.cost = 10.0
+    # travel cost: (event2.id, event3.id): 3,
+    # event3.cost = 10.0
+    # travel cost: (event3.id, ITINERARY_END_EVENT_NAME): 22
+    # travel cost: (event1.id, event3.id): 7.0
+    itinerary.schedule_event(event1, day=0, start_slot=16, duration=1)
+    itinerary.schedule_event(event2, day=0, start_slot=20, duration=2)
+    itinerary.schedule_event(event3, day=0, start_slot=25, duration=1)
+    itinerary.schedule_event(event4, day=1, start_slot=16, duration=1)
+    itinerary.unschedule_event(event4)
+    assert itinerary.total_cost == 10+25+5+10+3+10+22
+    assert event4.id not in itinerary.scheduled_events
+    assert itinerary.days[1][16] is None
+    itinerary.unschedule_event(event2)
+    assert itinerary.total_cost == 10+25+7+10+22
+    assert event2.id not in itinerary.scheduled_events
+    assert all([slot is None for slot in itinerary.days[0][20:22]])
+    itinerary.unschedule_event(event3)
+    assert itinerary.total_cost == 10+25+10
+    assert event3.id not in itinerary.scheduled_events
+    assert itinerary.days[0][25] is None
+    itinerary.unschedule_event(event1)
+    assert itinerary.total_cost == 0
+    assert event1.id not in itinerary.scheduled_events
+    assert itinerary.days[0][16] is None

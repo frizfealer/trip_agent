@@ -84,7 +84,7 @@ class Itinerary:
                 return self.days[day][slot], slot
         return self.itinerary_start_event, -1
 
-    def calculate_additional_travel_cost_for_event(self, event: Event, prev_event: Event, next_event: Event) -> float:
+    def calculate_travel_cost_change_for_event(self, event: Event, prev_event: Event, next_event: Event, add_event: bool) -> float:
         """Get the additional cost for scheduling an event on a specific day and start time."""
         prev_to_next_event_travel_cost = self.travel_cost_mat.get(
             (prev_event.id, next_event.id), self.min_travel_cost)
@@ -92,9 +92,25 @@ class Itinerary:
             (prev_event.id, event.id), self.min_travel_cost)
         current_to_next_event_travel_cost = self.travel_cost_mat.get(
             (event.id, next_event.id), self.min_travel_cost)
-        additional_travel_cost = prev_to_current_event_travel_cost + \
-            current_to_next_event_travel_cost - prev_to_next_event_travel_cost
-        return additional_travel_cost
+        if add_event:
+            travel_cost_change = prev_to_current_event_travel_cost + \
+                current_to_next_event_travel_cost - prev_to_next_event_travel_cost
+        else:
+            travel_cost_change = prev_to_next_event_travel_cost - \
+                prev_to_current_event_travel_cost - current_to_next_event_travel_cost
+        return travel_cost_change
+
+    def calculate_additional_travel_time_for_event(self, event: Event, prev_event: Event, next_event: Event) -> int:
+        """Get the additional travel time for scheduling an event on a specific day and start time."""
+        prev_to_next_event_travel_time = self.travel_time_mat.get(
+            (prev_event.id, next_event.id), self.min_travel_time)
+        prev_to_current_event_travel_time = self.travel_time_mat.get(
+            (prev_event.id, event.id), self.min_travel_time)
+        current_to_next_event_travel_time = self.travel_time_mat.get(
+            (event.id, next_event.id), self.min_travel_time)
+        additional_travel_time = prev_to_current_event_travel_time + \
+            current_to_next_event_travel_time - prev_to_next_event_travel_time
+        return additional_travel_time
 
     def check_schedule_event(
         self, event: Event, day: int, start_slot: int, duration: int
@@ -162,8 +178,8 @@ class Itinerary:
 
         prev_event, prev_slot = self.get_previous_event(day, start_slot)
         next_event, next_slot = self.get_next_event(day, end_slot)
-        additional_travel_cost = self.calculate_additional_travel_cost_for_event(
-            event, prev_event, next_event)
+        additional_travel_cost = self.calculate_travel_cost_change_for_event(
+            event, prev_event, next_event, add_event=True)
         if self.total_cost + additional_travel_cost + event.cost > self.budget:
             logger.info(
                 f"Attempted to schedule event {event.name} (ID: {event.id}) "
@@ -199,10 +215,10 @@ class Itinerary:
                 self.days[day][slot] = event
             prev_event, _ = self.get_previous_event(day, start_slot)
             next_event, _ = self.get_next_event(day, end_slot)
-            additional_travel_cost = self.calculate_additional_travel_cost_for_event(
-                event, prev_event, next_event)
+            travel_cost_change = self.calculate_travel_cost_change_for_event(
+                event, prev_event, next_event, add_event=True)
             # Update the itinerary cost and experience
-            self.total_cost += (additional_travel_cost + event.cost)
+            self.total_cost += (travel_cost_change + event.cost)
             # Update the scheduled_events dictionary
             self.scheduled_events[event.id] = (
                 event, day, start_slot, end_slot)
@@ -217,23 +233,16 @@ class Itinerary:
             raise ValueError(
                 f"Attempted to remove event {event.name} (ID: {event.id}), which is not scheduled"
             )
-        day, start_slot, end_slot = self.scheduled_events[event.id]
+        _, day, start_slot, end_slot = self.scheduled_events[event.id]
         for slot in range(start_slot, end_slot):
             self.days[day][slot] = None
 
         prev_event, _ = self.get_previous_event(day, start_slot)
         next_event, _ = self.get_next_event(day, end_slot)
-        prev_to_current_event_travel_cost = self.travel_cost_mat.get(
-            (prev_event.id, event.id), self.min_travel_cost)
-        current_to_next_event_travel_cost = self.travel_cost_mat.get(
-            (event.id, next_event.id), self.min_travel_cost)
-        if next_event.id != self.itinerary_start_event.id or prev_event.id != self.itinerary_start_event.id:
-            prev_to_next_direct_travel_cost = self.travel_cost_mat.get(
-                (prev_event.id, next_event.id), self.min_travel_cost)
-        else:
-            prev_to_next_direct_travel_cost = 0.0
-        self.total_cost += (-event.cost - prev_to_current_event_travel_cost -
-                            current_to_next_event_travel_cost + prev_to_next_direct_travel_cost)
+        travel_cost_change = self.calculate_travel_cost_change_for_event(
+            event, prev_event, next_event, add_event=False)
+        self.total_cost += (-event.cost + travel_cost_change)
+        del self.scheduled_events[event.id]
 
     def calculate_day_cost(self, day_index: int) -> Tuple[float, float]:
         """Calculate the total cost for a single day in the itinerary.
