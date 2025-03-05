@@ -31,14 +31,14 @@ def generate_unique_id() -> str:
 
 def convert_time_to_slot(hour: int, minute: int, day_resolution: int = DEFAULT_DAY_RESOLUTION) -> int:
     """Convert a time to a slot number."""
-    slot_minute = 24*60 // day_resolution
+    slot_minute = 24 * 60 // day_resolution
     # e.g. 10:30, day_resolution = 48 -> 21
     return hour * 60 // slot_minute + round(minute / slot_minute)
 
 
 def convert_slot_to_time(slot: int, day_resolution: int = DEFAULT_DAY_RESOLUTION) -> Tuple[int, int]:
     """Convert a slot number to a time."""
-    slot_minute = 24*60 // day_resolution
+    slot_minute = 24 * 60 // day_resolution
     hour = slot * slot_minute // 60
     minute = (slot * slot_minute) % 60
     return hour, minute
@@ -46,13 +46,13 @@ def convert_slot_to_time(slot: int, day_resolution: int = DEFAULT_DAY_RESOLUTION
 
 def convert_hours_to_slots(hours: float, day_resolution: int = DEFAULT_DAY_RESOLUTION) -> int:
     """Convert hours to slots."""
-    slot_minute = 24*60 // day_resolution
+    slot_minute = 24 * 60 // day_resolution
     return math.ceil(hours * 60 / slot_minute)
 
 
 def convert_minutes_to_slots(minutes: int, day_resolution: int = DEFAULT_DAY_RESOLUTION) -> int:
     """Convert minutes to slots."""
-    slot_minute = 24*60 // day_resolution
+    slot_minute = 24 * 60 // day_resolution
     return math.ceil(minutes / slot_minute)
 
 
@@ -62,7 +62,9 @@ def gen_str_from_slot(slot: int, day_resolution: int) -> str:
     return f"{hour:02d}:{minute:02d}"
 
 
-def parse_regular_opening_hours(opening_hours_str: str, day_resolution: int = DEFAULT_DAY_RESOLUTION) -> Dict[Day, Optional[Tuple[int, int]]]:
+def parse_regular_opening_hours(
+    opening_hours_str: str, day_resolution: int = DEFAULT_DAY_RESOLUTION
+) -> Dict[Day, Optional[Tuple[int, int]]]:
     """Parse opening hours string into a dictionary mapping Day to (start_slot, end_slot) tuples.
 
     Args:
@@ -103,12 +105,12 @@ def parse_regular_opening_hours(opening_hours_str: str, day_resolution: int = DE
         # Split start and end times
         try:
             # Replace Unicode whitespace characters with regular space
-            hours = hours.replace('\u202f', ' ').replace('\u2009', ' ')
+            hours = hours.replace("\u202f", " ").replace("\u2009", " ")
             start_time_str, end_time_str = hours.split("–")
 
             # Clean up any extra spaces and standardize format
-            start_time_str = ' '.join(start_time_str.split())
-            end_time_str = ' '.join(end_time_str.split())
+            start_time_str = " ".join(start_time_str.split())
+            end_time_str = " ".join(end_time_str.split())
 
             # Handle times without AM/PM specification
             def parse_time(time_str: str) -> datetime:
@@ -119,7 +121,7 @@ def parse_regular_opening_hours(opening_hours_str: str, day_resolution: int = DE
                 except ValueError:
                     try:
                         # Try parsing without AM/PM, assume 24-hour format
-                        hour, minute = map(int, time_str.split(':'))
+                        hour, minute = map(int, time_str.split(":"))
                         time_obj = datetime.now().replace(hour=hour, minute=minute)
                         # If end time is before start time, assume PM
                         if "PM" in end_time_str and "AM" not in start_time_str:
@@ -132,14 +134,13 @@ def parse_regular_opening_hours(opening_hours_str: str, day_resolution: int = DE
                         if "PM" in end_time_str and "AM" not in start_time_str:
                             time_obj = time_obj.replace(hour=(hour + 12) % 24)
                         return time_obj
+
             start_time = parse_time(start_time_str)
             end_time = parse_time(end_time_str)
 
             # Convert to slots (each slot is 30 minutes)
-            start_slot = start_time.hour * hours_in_slots + \
-                (start_time.minute // slot_mins)
-            end_slot = min(day_resolution, end_time.hour * hours_in_slots +
-                           (end_time.minute // slot_mins) + 1)
+            start_slot = start_time.hour * hours_in_slots + (start_time.minute // slot_mins)
+            end_slot = min(day_resolution, end_time.hour * hours_in_slots + (end_time.minute // slot_mins) + 1)
             if end_slot < start_slot:
                 end_slot = day_resolution
 
@@ -165,7 +166,7 @@ class Event:
         bonus_end: Optional[int] = None,
         id: Optional[str] = None,
         default_opening_hours: Tuple[int, int] = DEFAULT_OPENING_HOURS,
-        day_resolution: int = DEFAULT_DAY_RESOLUTION
+        day_resolution: int = DEFAULT_DAY_RESOLUTION,
     ):
         """
         Represents an event in the itinerary.
@@ -208,21 +209,27 @@ class Event:
         # Format opening hours
 
         hours_str = "\n".join(
-            [f" {day.name}: {gen_str_from_slot(times[0], self.day_resolution)}-{gen_str_from_slot(times[1], self.day_resolution)}"
-             if times is not None else f" {day.name}: closed" for day, times in self.opening_hours.items()]
+            [
+                (
+                    f" {day.name}: "
+                    + f"{gen_str_from_slot(times[0], self.day_resolution)}-{gen_str_from_slot(times[1], self.day_resolution)}"
+                    if times is not None
+                    else f" {day.name}: closed"
+                )
+                for day, times in self.opening_hours.items()
+            ]
         )
 
         # Format bonus time if applicable
         bonus_time = ""
-        if (
-            self.bonus_exp is not None
-            and self.bonus_start is not None
-            and self.bonus_end is not None
-        ):
-            bonus_time = f"\nBonus Time: {gen_str_from_slot(self.bonus_start, self.day_resolution)}-{gen_str_from_slot(self.bonus_end, self.day_resolution)}"
+        if self.bonus_exp is not None and self.bonus_start is not None and self.bonus_end is not None:
+            bonus_time = (
+                "\nBonus Time: "
+                + f"{gen_str_from_slot(self.bonus_start, self.day_resolution)}-"
+                + f"{gen_str_from_slot(self.bonus_end, self.day_resolution)}"
+            )
             bonus_time += f"\nBonus EXP: {self.bonus_exp}"
-        duration_hour, duration_minute = convert_slot_to_time(
-            self.duration, self.day_resolution)
+        duration_hour, duration_minute = convert_slot_to_time(self.duration, self.day_resolution)
         return (
             f"Event: {self.name} (ID: {self.id})\n"
             f"Duration: {duration_hour}h{duration_minute}m\n"
@@ -277,10 +284,5 @@ def score_event(
     actual_duration = min(actual_duration, event.duration)
     duration_ratio = actual_duration / event.duration
     base_exp = event.base_exp * duration_ratio
-    score = (
-        (base_exp) * w_xp
-        + 1.0 * w_count
-        + event.cost * w_cost
-        + actual_duration * w_dur
-    )
+    score = (base_exp) * w_xp + 1.0 * w_count + event.cost * w_cost + actual_duration * w_dur
     return score
