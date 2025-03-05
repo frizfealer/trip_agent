@@ -10,10 +10,10 @@ from dotenv import load_dotenv
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-BASE_URL = 'https://maps.googleapis.com/maps/api/distancematrix/json'
+BASE_URL = "https://maps.googleapis.com/maps/api/distancematrix/json"
 RATE_LIMIT = 100  # elements per second
-CHUNK_SIZE = 10   # max locations per request
-ALLOWED_MODES = {'driving', 'walking', 'bicycling', 'transit'}
+CHUNK_SIZE = 10  # max locations per request
+ALLOWED_MODES = {"driving", "walking", "bicycling", "transit"}
 
 load_dotenv()
 
@@ -48,7 +48,9 @@ def calculate_delay(origin_size: int, dest_size: int) -> float:
     return elements / RATE_LIMIT - 1  # minimum time needed for these elements
 
 
-def get_travel_time_matrix(locations: List[str], default_time: float = float("nan"), mode: str = 'driving') -> Dict[tuple, float]:
+def get_travel_time_matrix(
+    locations: List[str], default_time: float = float("nan"), mode: str = "driving"
+) -> Dict[tuple, float]:
     """
     Get a matrix of travel times between all pairs of locations.
     Processes locations in batches to respect API limits.
@@ -80,8 +82,7 @@ def get_travel_time_matrix(locations: List[str], default_time: float = float("na
             for dest_chunk in location_chunks:
                 # Calculate required delay for rate limiting
                 current_time = time.time()
-                required_delay = calculate_delay(
-                    len(origin_chunk), len(dest_chunk))
+                required_delay = calculate_delay(len(origin_chunk), len(dest_chunk))
 
                 # Wait if needed to maintain rate limit
                 time_since_last = current_time - last_request_time
@@ -89,10 +90,10 @@ def get_travel_time_matrix(locations: List[str], default_time: float = float("na
                     time.sleep(required_delay - time_since_last)
 
                 params = {
-                    'origins': '|'.join(origin_chunk),
-                    'destinations': '|'.join(dest_chunk),
-                    'key': os.getenv('GOOGLE_MAPS_API_KEY'),
-                    'mode': mode
+                    "origins": "|".join(origin_chunk),
+                    "destinations": "|".join(dest_chunk),
+                    "key": os.getenv("GOOGLE_MAPS_API_KEY"),
+                    "mode": mode,
                 }
 
                 response = requests.get(BASE_URL, params=params)
@@ -104,18 +105,15 @@ def get_travel_time_matrix(locations: List[str], default_time: float = float("na
                 for i, origin in enumerate(origin_chunk):
                     for j, destination in enumerate(dest_chunk):
                         try:
-                            element = data['rows'][i]['elements'][j]
-                            if element['status'] == 'OK':
-                                duration_seconds = element['duration']['value']
+                            element = data["rows"][i]["elements"][j]
+                            if element["status"] == "OK":
+                                duration_seconds = element["duration"]["value"]
                                 duration_minutes = duration_seconds / 60
-                                travel_times[(origin, destination)
-                                             ] = duration_minutes
+                                travel_times[(origin, destination)] = duration_minutes
                             else:
-                                travel_times[(origin, destination)
-                                             ] = default_time
+                                travel_times[(origin, destination)] = default_time
                         except (KeyError, IndexError):
-                            logger.warning(
-                                f"Error getting travel time: {data['status']}")
+                            logger.warning(f"Error getting travel time: {data['status']}")
                             travel_times[(origin, destination)] = default_time
 
     except (requests.RequestException, KeyError, ValueError) as e:
@@ -130,12 +128,7 @@ def get_travel_time_matrix(locations: List[str], default_time: float = float("na
 
 if __name__ == "__main__":
     # Test locations in New York City
-    test_locations = [
-        "Times Square, New York",
-        "Central Park, New York",
-        "Statue of Liberty",
-        "Fake location"
-    ]
+    test_locations = ["Times Square, New York", "Central Park, New York", "Statue of Liberty", "Fake location"]
 
     print("Testing travel time matrix with locations:", test_locations)
     travel_times = get_travel_time_matrix(test_locations, mode="walking")
