@@ -253,7 +253,7 @@ def score_event(
     Calculates the score for a single event based on its duration, cost, and experience points.
 
     The scoring formula is:
-    score = (base_exp * duration_ratio) * w_xp + 1.0 * w_count - \
+    score = (base_exp * (actual_duration/event.duration)) * w_xp + 1.0 * w_count - \
              event.cost * w_cost - actual_duration * w_dur
 
     Args:
@@ -280,7 +280,7 @@ def score_event(
     score = (
         (base_exp) * w_xp
         + 1.0 * w_count
-        - event.cost * w_cost
-        - actual_duration * w_dur
+        + event.cost * w_cost
+        + actual_duration * w_dur
     )
     return score

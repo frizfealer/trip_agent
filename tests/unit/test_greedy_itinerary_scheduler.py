@@ -1,8 +1,10 @@
-import pytest
-from agent.scheduler.greedy_itinerary_scheduler import GreedyItineraryScheduler
-from agent.scheduler.itinerary import Event, Day, Itinerary
-import numpy as np
 from collections import defaultdict
+
+import pytest
+
+from agent.scheduler.itinerary import Day, Event, Itinerary
+from agent.scheduler.itinerary_scheduler import GreedyItineraryScheduler
+
 
 @pytest.fixture
 def sample_events():

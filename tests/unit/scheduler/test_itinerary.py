@@ -5,6 +5,8 @@ from agent.scheduler.itinerary import (
     Day,
     Event,
     Itinerary,
+    generate_travel_cost_matrix_from_travel_time_matrix,
+    postprocess_travel_time_matrix,
     score_event,
     score_itinerary,
 )
@@ -101,20 +103,20 @@ def event4():
 @pytest.fixture
 def travel_cost_mat(event1, event2, event3, event4):
     travel_cost_mat = {
-        (ITINERARY_START_EVENT_NAME, event1.id): 10.0,
-        (ITINERARY_START_EVENT_NAME, event2.id): 15.0,
-        (ITINERARY_START_EVENT_NAME, event3.id): 22.0,
-        (ITINERARY_START_EVENT_NAME, event4.id): 15.0,
-        (event1.id, event2.id): 5.0,
-        (event1.id, event3.id): 7.0,
-        (event1.id, event4.id): 10.0,
-        (event2.id, event3.id): 3.0,
-        (event2.id, event4.id): 10.0,
-        (event3.id, event4.id): 2.0,
+        (ITINERARY_START_EVENT_NAME, event1.name): 10.0,
+        (ITINERARY_START_EVENT_NAME, event2.name): 15.0,
+        (ITINERARY_START_EVENT_NAME, event3.name): 22.0,
+        (ITINERARY_START_EVENT_NAME, event4.name): 15.0,
+        (event1.name, event2.name): 5.0,
+        (event1.name, event3.name): 7.0,
+        (event1.name, event4.name): 10.0,
+        (event2.name, event3.name): 3.0,
+        (event2.name, event4.name): 10.0,
+        (event3.name, event4.name): 2.0,
     }
     for e1, e2 in list(travel_cost_mat.keys()):
         travel_cost_mat[(e2, e1)] = travel_cost_mat[(e1, e2)]
-    for e in [ITINERARY_START_EVENT_NAME, event1.id, event2.id, event3.id, event4.id]:
+    for e in [ITINERARY_START_EVENT_NAME, event1.name, event2.name, event3.name, event4.name]:
         travel_cost_mat[(e, e)] = 0.0
     return travel_cost_mat
 
@@ -122,20 +124,20 @@ def travel_cost_mat(event1, event2, event3, event4):
 @pytest.fixture
 def travel_time_mat(event1, event2, event3, event4):
     travel_time_mat = {
-        (ITINERARY_START_EVENT_NAME, event1.id): 1,
-        (ITINERARY_START_EVENT_NAME, event2.id): 2,
-        (ITINERARY_START_EVENT_NAME, event3.id): 3,
-        (ITINERARY_START_EVENT_NAME, event4.id): 4,
-        (event1.id, event2.id): 1,
-        (event1.id, event3.id): 2,
-        (event1.id, event4.id): 3,
-        (event2.id, event3.id): 2,
-        (event2.id, event4.id): 3,
-        (event3.id, event4.id): 2,
+        (ITINERARY_START_EVENT_NAME, event1.name): 1,
+        (ITINERARY_START_EVENT_NAME, event2.name): 2,
+        (ITINERARY_START_EVENT_NAME, event3.name): 3,
+        (ITINERARY_START_EVENT_NAME, event4.name): 4,
+        (event1.name, event2.name): 1,
+        (event1.name, event3.name): 2,
+        (event1.name, event4.name): 3,
+        (event2.name, event3.name): 2,
+        (event2.name, event4.name): 3,
+        (event3.name, event4.name): 2,
     }
     for e1, e2 in list(travel_time_mat.keys()):
         travel_time_mat[(e2, e1)] = travel_time_mat[(e1, e2)]
-    for e in [ITINERARY_START_EVENT_NAME, event1.id, event2.id, event3.id, event4.id]:
+    for e in [ITINERARY_START_EVENT_NAME, event1.name, event2.name, event3.name, event4.name]:
         travel_time_mat[(e, e)] = 0
     return travel_time_mat
 
@@ -231,16 +233,16 @@ def test_itinerary_exceeds_travel_time(itinerary, event1, event2, event3):
 def test_compute_total_cost(itinerary, event1, event2, event3, event4):
     """Test scheduling an event after the closing hours."""
     itinerary.budget = 200.0
-    # travel cost: (ITINERARY_START_EVENT_NAME, event1.id): 10.0,
+    # travel cost: (ITINERARY_START_EVENT_NAME, event1.name): 10.0,
     # event1.cost = 25.0
-    # travel cost: (event1.id, event2.id): 5,
+    # travel cost: (event1.name, event2.name): 5,
     # event2.cost = 10.0
-    # travel cost: (event2.id, event3.id): 3,
+    # travel cost: (event2.name, event3.name): 3,
     # event3.cost = 10.0
-    # travel cost: (event3.id, ITINERARY_END_EVENT_NAME): 22
-    # travel cost: (ITINERARY_END_EVENT_NAME, event2.id): 15
+    # travel cost: (event3.name, ITINERARY_END_EVENT_NAME): 22
+    # travel cost: (ITINERARY_END_EVENT_NAME, event2.name): 15
     # event2.cost = 10.0
-    # travel cost: (event4.id, ITINERARY_END_EVENT_NAME): 15
+    # travel cost: (event4.name, ITINERARY_END_EVENT_NAME): 15
     status = itinerary.schedule_event(
         event1, day=0, start_slot=16, duration=1)
     assert status == 0
@@ -262,30 +264,30 @@ def test_compute_total_cost(itinerary, event1, event2, event3, event4):
 def test_compute_total_travel_time_and_gap_time(itinerary, event1, event2, event3, event4):
     """Test computing the total travel time and gap time."""
     # travel_time_mat = {
-    #     (ITINERARY_START_EVENT_NAME, event1.id): 1,
-    #     (ITINERARY_START_EVENT_NAME, event2.id): 2,
-    #     (ITINERARY_START_EVENT_NAME, event3.id): 3,
-    #     (event1.id, event2.id): 1,
-    #     (event1.id, event3.id): 2,
-    #     (event2.id, event3.id): 2,
+    #     (ITINERARY_START_EVENT_NAME, event1.name): 1,
+    #     (ITINERARY_START_EVENT_NAME, event2.name): 2,
+    #     (ITINERARY_START_EVENT_NAME, event3.name): 3,
+    #     (event1.name, event2.name): 1,
+    #     (event1.name, event3.name): 2,
+    #     (event2.name, event3.name): 2,
     # }
     # for e1, e2 in list(travel_time_mat.keys()):
     #     travel_time_mat[(e2, e1)] = travel_time_mat[(e1, e2)]
     itinerary.budget = 200.0
-    # travel time: (ITINERARY_START_EVENT_NAME, event1.id): 1,
+    # travel time: (ITINERARY_START_EVENT_NAME, event1.name): 1,
     status = itinerary.schedule_event(
         event1, day=0, start_slot=16, duration=1)
     assert status == 0
-    # travel time: (event1.id, event2.id): 1, gap time: 20-(16+1)-1=2
+    # travel time: (event1.name, event2.name): 1, gap time: 20-(16+1)-1=2
     status = itinerary.schedule_event(
         event2, day=0, start_slot=20, duration=2)
     assert status == 0
-    # travel time: (event2.id, event3.id): 2, gap time: 25-(20+2)-2=1
-    # travel time: (event3.id, ITINERARY_END_EVENT_NAME): 3
+    # travel time: (event2.name, event3.name): 2, gap time: 25-(20+2)-2=1
+    # travel time: (event3.name, ITINERARY_END_EVENT_NAME): 3
     status = itinerary.schedule_event(
         event3, day=0, start_slot=25, duration=1)
     assert status == 0
-    # travel time: (event4.id, ITINERARY_END_EVENT_NAME): 4
+    # travel time: (event4.name, ITINERARY_END_EVENT_NAME): 4
     status = itinerary.schedule_event(
         event4, day=1, start_slot=16, duration=1)
     assert status == 0
@@ -308,16 +310,16 @@ def test_itinerary_score(itinerary, event1, event2, event3, event4):
 
     # Get the actual score
     score = score_itinerary(itinerary, w_xp=1.0, w_count=1.0,
-                            w_cost=1.0, w_dur=1.0, w_gap=1.0, w_travel_time=1.0)
+                            w_cost=-1.0, w_dur=-1.0, w_gap=1.0, w_travel_time=-1.0)
     # Calculate individual event scores
     event1_score = score_event(
-        event1, actual_duration=1, w_xp=1.0, w_count=1.0, w_cost=1.0, w_dur=1.0)
+        event1, actual_duration=1, w_xp=1.0, w_count=1.0, w_cost=-1.0, w_dur=-1.0)
     event2_score = score_event(
-        event2, actual_duration=2, w_xp=1.0, w_count=1.0, w_cost=1.0, w_dur=1.0)
+        event2, actual_duration=2, w_xp=1.0, w_count=1.0, w_cost=-1.0, w_dur=-1.0)
     event3_score = score_event(
-        event3, actual_duration=1, w_xp=1.0, w_count=1.0, w_cost=1.0, w_dur=1.0)
+        event3, actual_duration=1, w_xp=1.0, w_count=1.0, w_cost=-1.0, w_dur=-1.0)
     event4_score = score_event(
-        event4, actual_duration=1, w_xp=1.0, w_count=1.0, w_cost=1.0, w_dur=1.0)
+        event4, actual_duration=1, w_xp=1.0, w_count=1.0, w_cost=-1.0, w_dur=-1.0)
 
     # Calculate total event score
     total_event_score = event1_score + event2_score + event3_score + event4_score
@@ -329,14 +331,14 @@ def test_itinerary_score(itinerary, event1, event2, event3, event4):
 
     _, total_travel_cost = itinerary.calculate_total_cost()
     # Calculate penalties
-    travel_time_penalty = total_travel_time * 1.0
+    travel_time_penalty = total_travel_time * -1.0
     gap_time_bonus = total_gap_time * 1.0
 
     # Calculate expected score
     # Note: The score_itinerary function might be subtracting additional penalties
     # that we're not accounting for, such as total cost
-    expected_score = total_event_score - \
-        travel_time_penalty + gap_time_bonus - total_travel_cost * 1.0
+    expected_score = total_event_score + \
+        travel_time_penalty + gap_time_bonus + total_travel_cost * -1.0
 
     # Print debug information
     print(
@@ -353,31 +355,75 @@ def test_itinerary_score(itinerary, event1, event2, event3, event4):
 
 def test_unschedule_event(itinerary, event1, event2, event3, event4):
     itinerary.budget = 200.0
-    # travel cost: (ITINERARY_START_EVENT_NAME, event1.id): 10.0,
+    # travel cost: (ITINERARY_START_EVENT_NAME, event1.name): 10.0,
     # event1.cost = 25.0
-    # travel cost: (event1.id, event2.id): 5,
+    # travel cost: (event1.name, event2.name): 5,
     # event2.cost = 10.0
-    # travel cost: (event2.id, event3.id): 3,
+    # travel cost: (event2.name, event3.name): 3,
     # event3.cost = 10.0
-    # travel cost: (event3.id, ITINERARY_END_EVENT_NAME): 22
-    # travel cost: (event1.id, event3.id): 7.0
+    # travel cost: (event3.name, ITINERARY_END_EVENT_NAME): 22
+    # travel cost: (event1.name, event3.name): 7.0
     itinerary.schedule_event(event1, day=0, start_slot=16, duration=1)
     itinerary.schedule_event(event2, day=0, start_slot=20, duration=2)
     itinerary.schedule_event(event3, day=0, start_slot=25, duration=1)
     itinerary.schedule_event(event4, day=1, start_slot=16, duration=1)
     itinerary.unschedule_event(event4)
     assert itinerary.total_cost == 10+25+5+10+3+10+22
-    assert event4.id not in itinerary.scheduled_events
+    assert event4.name not in itinerary.scheduled_events
     assert itinerary.days[1][16] is None
     itinerary.unschedule_event(event2)
     assert itinerary.total_cost == 10+25+7+10+22
-    assert event2.id not in itinerary.scheduled_events
+    assert event2.name not in itinerary.scheduled_events
     assert all([slot is None for slot in itinerary.days[0][20:22]])
     itinerary.unschedule_event(event3)
     assert itinerary.total_cost == 10+25+10
-    assert event3.id not in itinerary.scheduled_events
+    assert event3.name not in itinerary.scheduled_events
     assert itinerary.days[0][25] is None
     itinerary.unschedule_event(event1)
     assert itinerary.total_cost == 0
-    assert event1.id not in itinerary.scheduled_events
+    assert event1.name not in itinerary.scheduled_events
     assert itinerary.days[0][16] is None
+
+
+def test_postprocess_travel_time_matrix(event1, event2, event3):
+    travel_time_mat = {
+        (event1.name, event2.name): 1,
+        (event2.name, event1.name): 1,
+        (event1.name, event3.name): 2,
+        (event3.name, event1.name): 2,
+        (event2.name, event3.name): 3,
+        (event3.name, event2.name): 3,
+    }
+    travel_time_mat = postprocess_travel_time_matrix(
+        [event1, event2, event3], travel_time_mat)
+    assert travel_time_mat[(ITINERARY_START_EVENT_NAME, event1.name)] == 1
+    assert travel_time_mat[(ITINERARY_START_EVENT_NAME, event2.name)] == 1
+    assert travel_time_mat[(ITINERARY_START_EVENT_NAME, event3.name)] == 1
+    assert travel_time_mat[(event1.name, ITINERARY_START_EVENT_NAME)] == 1
+    assert travel_time_mat[(event2.name, ITINERARY_START_EVENT_NAME)] == 1
+    assert travel_time_mat[(event3.name, ITINERARY_START_EVENT_NAME)] == 1
+
+
+def test_generate_travel_cost_matrix_from_travel_time_matrix(event1, event2, event3):
+    travel_time_mat = {
+        (event1.name, event2.name): 1,
+        (event1.name, event3.name): 2,
+        (event2.name, event3.name): 2,
+    }
+    travel_time_mat = postprocess_travel_time_matrix(
+        [event1, event2, event3], travel_time_mat)
+    travel_cost_mat = generate_travel_cost_matrix_from_travel_time_matrix(
+        travel_time_mat, "walking")
+    assert all([i == 0 for i in travel_cost_mat.values()])
+    travel_cost_mat = generate_travel_cost_matrix_from_travel_time_matrix(
+        travel_time_mat, "transit")
+    assert all([travel_cost_mat[(k1, k2)] == 2.75 for k1,
+               k2 in travel_cost_mat.keys() if k1 != k2])
+    travel_cost_mat = generate_travel_cost_matrix_from_travel_time_matrix(
+        travel_time_mat, "driving")
+    assert travel_cost_mat[(event1.name, event2.name)] == 0.72 * \
+        1/60*45
+    assert travel_cost_mat[(event1.name, event3.name)] == 0.72 * \
+        2/60*45
+    assert travel_cost_mat[(event2.name, event3.name)] == 0.72 * \
+        2/60*45

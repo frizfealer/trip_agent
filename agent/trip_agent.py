@@ -18,7 +18,12 @@ from agent.scheduler.event import (
     convert_minutes_to_slots,
     parse_regular_opening_hours,
 )
-from agent.scheduler.itinerary import ITINERARY_START_EVENT_NAME
+from agent.scheduler.itinerary import (
+    generate_travel_cost_matrix_from_travel_time_matrix,
+    postprocess_travel_time_matrix,
+    score_itinerary,
+)
+from agent.scheduler.itinerary_scheduler import ItineraryScheduler
 from agent.trip_preference import TripPreference
 from agent.utils.travel_time import get_travel_time_matrix
 
@@ -193,7 +198,7 @@ I am planning a trip and need detailed attraction recommendations based on the f
 
 ### Recommendations
 Please provide:
-1. {n_recommendations} aligned recommendations** matching my interests. 
+1. {n_recommendations} aligned recommendations** matching my interests.
 2. Prioritize must-visits categories and order the recommendations based on their relevance to my interests and their popularities.
 3. Make sure each recommendation's budget is within my budget.
 4. Make sure each recommendation's duration is within my trip duration.
@@ -201,7 +206,7 @@ Please provide:
 6. Mare sure each recommendation is a concrete attraction place, not a general activity.
 """
 
-ITINERARY_PROMPT = """  
+ITINERARY_PROMPT = """
 Given my trip preferences and the attraction candidates, please provide a detailed itinerary for my trip.
 ### Respond using the {function_name} function.
 ### Trip Preferences
@@ -331,15 +336,6 @@ class TripAgent:
         locations = [event.name for event in events]
         travel_cost_matrix = {}
         travel_time_matrix = {}
-        # Add hotel connections
-        travel_time_matrix[(ITINERARY_START_EVENT_NAME,
-                            ITINERARY_START_EVENT_NAME)] = 0
-        travel_cost_matrix[(ITINERARY_START_EVENT_NAME,
-                            ITINERARY_START_EVENT_NAME)] = 0
-        for location in locations:
-            travel_time_matrix[(ITINERARY_START_EVENT_NAME, location)] = 1
-            travel_time_matrix[(location, ITINERARY_START_EVENT_NAME)] = 1
-            travel_cost_matrix[(location, location)] = 0
         try:
             raw_travel_time_matrix = get_travel_time_matrix(
                 locations, mode=travel_type)
@@ -349,38 +345,54 @@ class TripAgent:
                                    ] = convert_minutes_to_slots(minutes)
         except Exception as e:
             logging.warning(f"Could not get travel time matrix: {e}")
-            # Fallback to default travel times
-            for origin in locations + ITINERARY_START_EVENT_NAME:
-                for destination in locations + ITINERARY_START_EVENT_NAME:
-                    if origin != destination:
-                        travel_time_matrix[(origin, destination)] = 1
-                        travel_time_matrix[(destination, origin)] = 1
-                    else:
-                        travel_time_matrix[(origin, destination)] = 0
-        if travel_type == "driving":
-            # Assume it is 0.72 USD per mile, driving at 45 mph
-            for (origin, destination) in travel_time_matrix.keys():
-                travel_cost_matrix[(origin, destination)] = 0.72 * \
-                    travel_time_matrix[(origin, destination)]/60*45
-        elif travel_type == "walking" or travel_type == "bicycling":
-            for (origin, destination) in travel_time_matrix.keys():
-                travel_cost_matrix[(origin, destination)] = 0
-        elif travel_type == "transit":
-            # Assume it is 2.75 USD per ride
-            for (origin, destination) in travel_time_matrix.keys():
-                travel_cost_matrix[(origin, destination)] = 2.75
+        travel_time_matrix = postprocess_travel_time_matrix(
+            events, travel_time_matrix)
+        travel_cost_matrix = generate_travel_cost_matrix_from_travel_time_matrix(
+            travel_time_matrix, travel_type)
+        travel_time_cost_str = ""
+        for i in range(len(locations)):
+            for j in range(i + 1, len(locations)):
+                travel_time_cost_str += f"{locations[i]} to {locations[j]}: {travel_time_matrix[(locations[i], locations[j])]:.0f} mins, ${travel_cost_matrix[(locations[i], locations[j])]:.0f} \n"
+
+        # Pre-compute the events list representation
+        events_list = [{'name': event.name, 'duration': event.duration,
+                        'cost': event.cost, 'base_exp': event.base_exp} for event in events]
 
         system_message = (
-            "You are a travel planning assistant that needs to set weight parameters for a greedy scheduling algorithm. "
-            "You are given a list of events and a travel cost matrix."
-            "Here are the events:"
-            "{events}"
-            "Here is the travel cost matrix:"
-            "{travel_cost_matrix}"
-            "Based on the following travel preference description, generate appropriate weight values for the following parameters:\n\n"
-            "Here is the doc for scoring each event: {score_event_doc}"
-            "Here is the doc for scoring the itinerary: {score_itinerary_doc}"
+            """
+            Given the following information, you need to generate weights that uses to call `score_itinerary` function.
+
+            - total budget: {budget}
+            - trip days: {trip_days}
+            - **Events List**: {events_list}
+            - **Travel time and cost**: {travel_time_cost_str}
+            - **Itinerary Description**: {itinerary_description} (this may be empty)
+            - **Scoring Documentation**: {score_itinerary_doc}
+
+            Consider the following factors when determining the weight values:
+            - Consider the total budget and trip days.
+            - Consider reasonable travel time and cost.
+            - Trade-offs between cost and time
+            - Importance of specific events over others
+            - Use the gap to control the level of flexibility within the itinerary
+
+            # Steps
+
+            1. **Review the Events List**: Analyze the listed events to identify any priorities or non-negotiable events.
+            2. **Review total budget and trip days**: Consider the total budget and trip days to determine the weight of the budget and duration parameters.
+            3. **Evaluate Travel Costs and Times**: Examine the travel cost and time matrices to assess potential trade-offs or constraints.
+            4. **Incorporate Itinerary Descriptions**: If available, use descriptions to understand preferred travel styles or constraints.
+            5. **Analyze Scoring Documentation**: Review the scoring documentation to understand how different parameters affect the itinerary's scoring.
+            """
         )
+
+        print(system_message.format(
+            events_list=events_list,
+            travel_time_cost_str=travel_time_cost_str,
+            itinerary_description=itinerary_description,
+            score_itinerary_doc=score_itinerary.__doc__
+        ))
+
         prompt_template = ChatPromptTemplate(
             [
                 ("system", system_message),
@@ -397,8 +409,7 @@ class TripAgent:
                 "events": "\n".join([str(event) for event in events]),
                 "travel_cost_matrix": str(travel_cost_matrix),
                 "itinerary_description": itinerary_description,
-                "score_event_doc": GreedyItineraryScheduler.score_event.__doc__,
-                "score_itinerary_doc": GreedyItineraryScheduler.score_itinerary.__doc__,
+                "score_itinerary_doc": score_itinerary.__doc__,
             }
         )
         logging.info(f"Weights: {weights}")
@@ -413,7 +424,7 @@ class TripAgent:
             "w_gap": weights.w_gap
         }
 
-        scheduler = GreedyItineraryScheduler(
+        scheduler = ItineraryScheduler(
             events=events,
             start_day=Day[start_day.upper()],
             num_days=trip_days,

@@ -48,7 +48,7 @@ def calculate_delay(origin_size: int, dest_size: int) -> float:
     return elements / RATE_LIMIT - 1  # minimum time needed for these elements
 
 
-def get_travel_time_matrix(locations: List[str], default_time: float = 15.0, mode: str = 'driving') -> Dict[tuple, float]:
+def get_travel_time_matrix(locations: List[str], default_time: float = float("nan"), mode: str = 'driving') -> Dict[tuple, float]:
     """
     Get a matrix of travel times between all pairs of locations.
     Processes locations in batches to respect API limits.
@@ -100,7 +100,6 @@ def get_travel_time_matrix(locations: List[str], default_time: float = 15.0, mod
 
                 response.raise_for_status()
                 data = response.json()
-
                 # Use original location names instead of geocoded addresses
                 for i, origin in enumerate(origin_chunk):
                     for j, destination in enumerate(dest_chunk):
@@ -134,7 +133,8 @@ if __name__ == "__main__":
     test_locations = [
         "Times Square, New York",
         "Central Park, New York",
-        "Statue of Liberty"
+        "Statue of Liberty",
+        "Fake location"
     ]
 
     print("Testing travel time matrix with locations:", test_locations)

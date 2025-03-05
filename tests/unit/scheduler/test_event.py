@@ -38,8 +38,8 @@ def test_score_event():
         opening_hours=None
     )
     score = score_event(event1, actual_duration=1, w_xp=1.0,
-                        w_count=1.0, w_cost=1.0, w_dur=1.0)
-    expected_score = 100.0 / 2 * 1.0 + 1.0 * 1.0 - 25.0 * 1.0 - 1 * 1.0
+                        w_count=1.0, w_cost=-1.0, w_dur=-1.0)
+    expected_score = 100.0 / 2 * 1.0 + 1.0 * 1.0 + 25.0 * -1.0 + 1 * -1.0
     assert score == expected_score
 
 
