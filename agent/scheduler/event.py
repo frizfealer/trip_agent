@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import math
 import uuid
@@ -21,23 +22,20 @@ class Day(IntEnum):
     SUNDAY = 6
 
 
-DEFAULT_OPENING_HOURS = (20, 35)  # (10:00 PM, 5:30 PM)
-
-
 def generate_unique_id() -> str:
     """Generate a unique event ID."""
     return str(uuid.uuid4())
 
 
 def convert_time_to_slot(hour: int, minute: int, day_resolution: int = DEFAULT_DAY_RESOLUTION) -> int:
-    """Convert a time to a slot number."""
+    """Convert a time (HH:MM) to a slot number."""
     slot_minute = 24 * 60 // day_resolution
     # e.g. 10:30, day_resolution = 48 -> 21
     return hour * 60 // slot_minute + round(minute / slot_minute)
 
 
 def convert_slot_to_time(slot: int, day_resolution: int = DEFAULT_DAY_RESOLUTION) -> Tuple[int, int]:
-    """Convert a slot number to a time."""
+    """Convert a slot number to a time (HH:MM)."""
     slot_minute = 24 * 60 // day_resolution
     hour = slot * slot_minute // 60
     minute = (slot * slot_minute) % 60
@@ -45,13 +43,13 @@ def convert_slot_to_time(slot: int, day_resolution: int = DEFAULT_DAY_RESOLUTION
 
 
 def convert_hours_to_slots(hours: float, day_resolution: int = DEFAULT_DAY_RESOLUTION) -> int:
-    """Convert hours to slots."""
+    """Convert hours (in float number) to slots."""
     slot_minute = 24 * 60 // day_resolution
     return math.ceil(hours * 60 / slot_minute)
 
 
-def convert_minutes_to_slots(minutes: int, day_resolution: int = DEFAULT_DAY_RESOLUTION) -> int:
-    """Convert minutes to slots."""
+def convert_minutes_to_slots(minutes: float, day_resolution: int = DEFAULT_DAY_RESOLUTION) -> int:
+    """Convert minutes (in float number) to slots."""
     slot_minute = 24 * 60 // day_resolution
     return math.ceil(minutes / slot_minute)
 
@@ -60,6 +58,9 @@ def gen_str_from_slot(slot: int, day_resolution: int) -> str:
     """Generate a string representation of a slot."""
     hour, minute = convert_slot_to_time(slot, day_resolution)
     return f"{hour:02d}:{minute:02d}"
+
+
+DEFAULT_OPENING_HOURS = (convert_hours_to_slots(10), convert_time_to_slot(17, 30))  # (10:00 AM, 5:30 PM)
 
 
 def parse_regular_opening_hours(
@@ -147,7 +148,7 @@ def parse_regular_opening_hours(
             result[day_enum] = (start_slot, end_slot)
         except ValueError:
             print(f"Error parsing hours for {day_name}: {hours}")
-            result[day_enum] = None
+            result[day_enum] = DEFAULT_OPENING_HOURS
 
     return result
 
@@ -182,7 +183,7 @@ class Event:
             bonus_exp: The bonus experience points for the event during bonus time.
             bonus_start: The start time slot of the bonus period (inclusive).
             bonus_end: The end time slot of the bonus period (exclusive).
-            id: A unique identifier for the event. Defaults to a UUID.
+            id: A unique identifier for the event. Defaults to a SHA-256 hash of the event's string representation.
             default_opening_hours: The default opening hours for the event, used if `opening_hours` is None.
             day_resolution: The number of time slots per day.
         """
@@ -200,9 +201,14 @@ class Event:
         self.bonus_exp = bonus_exp
         self.bonus_start = bonus_start
         self.bonus_end = bonus_end
-        # Use generate_unique_id() instead of name as default ID
-        self.id = id if id is not None else generate_unique_id()
         self.day_resolution = day_resolution
+
+        # Set ID to provided ID or generate a hash of the event's string representation
+        if id is not None:
+            self.id = id
+        else:
+            # Generate a hash of the string using SHA-256 for better collision resistance
+            self.id = hashlib.sha256((self.__str__()).encode()).hexdigest()
 
     def __str__(self) -> str:
         """Return a human-readable string representation of the event."""
@@ -231,7 +237,7 @@ class Event:
             bonus_time += f"\nBonus EXP: {self.bonus_exp}"
         duration_hour, duration_minute = convert_slot_to_time(self.duration, self.day_resolution)
         return (
-            f"Event: {self.name} (ID: {self.id})\n"
+            f"Event: {self.name}\n"
             f"Duration: {duration_hour}h{duration_minute}m\n"
             f"Cost: ${self.cost:.2f}\n"
             f"Base EXP: {self.base_exp}"

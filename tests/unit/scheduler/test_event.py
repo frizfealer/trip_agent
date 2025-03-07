@@ -11,10 +11,10 @@ def test_event_id_uniqueness():
     """Test that each event gets a unique ID."""
 
     event1 = Event(name="Event 1", cost=10.0, duration=2, base_exp=100.0, opening_hours=None)
-
     event2 = Event(name="Event 1", cost=10.0, duration=2, base_exp=100.0, opening_hours=None)
-    # default id is generated from uuid; so the two events should have different ids
-    assert event1.id != event2.id
+    assert event1.id == event2.id
+    event3 = Event(name="Event 1", cost=10.0, duration=2, base_exp=120.0, opening_hours=None)
+    assert event1.id != event3.id
 
 
 def test_score_event():

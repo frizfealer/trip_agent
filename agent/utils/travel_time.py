@@ -49,7 +49,7 @@ def calculate_delay(origin_size: int, dest_size: int) -> float:
 
 
 def get_travel_time_matrix(
-    locations: List[str], default_time: float = float("nan"), mode: str = "driving"
+    locations: List[str], default_time: float = 15, mode: str = "driving"
 ) -> Dict[tuple, float]:
     """
     Get a matrix of travel times between all pairs of locations.

@@ -2,7 +2,7 @@ import logging
 from typing import Dict, List, Tuple
 
 from agent.scheduler.defaults import DEFAULT_DAY_RESOLUTION
-from agent.scheduler.event import Day, Event, score_event
+from agent.scheduler.event import Day, Event, convert_slot_to_time, score_event
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -24,7 +24,6 @@ def postprocess_travel_time_matrix(
     for event in events:
         travel_time_mat[(ITINERARY_START_EVENT_NAME, event.name)] = default_travel_time
         travel_time_mat[(event.name, ITINERARY_START_EVENT_NAME)] = default_travel_time
-        travel_time_mat[(event.name, event.name)] = 0
     return travel_time_mat
 
 
@@ -182,8 +181,6 @@ class Itinerary:
             raise ValueError(
                 f"Attempted to schedule event on day {day} with start slot {start_slot}, which is out of bounds"
             )
-        if event.name in self.scheduled_events:
-            raise ValueError(f"Attempted to schedule event {event.name} (ID: {event.id}), which is already scheduled")
         if event.duration < duration:
             raise ValueError(
                 f"Attempted to schedule event {event.name} (ID: {event.id}) with duration {duration}, "
@@ -369,7 +366,7 @@ class Itinerary:
                 (prev_event.name, self.itinerary_start_event.name), self.min_travel_time
             )
 
-        logger.info(f"Day {day_index} travel time: {day_travel_time}")
+        logger.debug(f"Day {day_index} travel time: {day_travel_time}, gap time: {day_gap_time}")
         return day_travel_time, day_gap_time
 
     def calculate_total_travel_time_and_gap_time(self) -> Tuple[int, int]:
@@ -387,23 +384,29 @@ class Itinerary:
         schedule_str = ""
         for day in range(self.num_days):
             schedule_str += f"\nDay {day + 1}:\n"
-            current_event = None
+            prev_printed_event = None
+            prev_event = None
             start_slot = None
-            min_unit = 60 * 24 // 48
             for slot in range(self.day_resolution):
                 event = self.days[day][slot]
-                if event != current_event:
-                    if current_event is not None:
-                        time_start = f"{start_slot // 2:02d}:{(start_slot % 2) * min_unit:02d}"
-                        time_end = f"{(slot) // 2:02d}:{((slot) % 2) * min_unit:02d}"
-                        schedule_str += f"  {time_start}-{time_end}: {current_event.name}\n"
-                    current_event = event
+                # a new event starts
+                if prev_event is None and event is not None:
+                    if prev_printed_event is not None:
+                        travel_time = self.travel_time_mat.get(
+                            (prev_printed_event.name, event.name), self.min_travel_time
+                        )
+                        travel_time_hour, travel_time_minute = convert_slot_to_time(travel_time, self.day_resolution)
+                        schedule_str += f"\ttravel time: {travel_time_hour*60 + travel_time_minute} minutes\n"
                     start_slot = slot
-            # Handle the last event of the day
-            if current_event is not None:
-                time_start = f"{start_slot // 2:02d}:{(start_slot % 2) * min_unit:02d}"
-                time_end = f"{(slot) // 2:02d}:{((slot) % 2) * min_unit:02d}"
-                schedule_str += f"  {time_start}-{time_end}: {current_event.name}\n"
+                # an event ends
+                if prev_event is not None and event is None:
+                    start_hour, start_minute = convert_slot_to_time(start_slot, self.day_resolution)
+                    end_hour, end_minute = convert_slot_to_time(slot, self.day_resolution)
+                    time_start = f"{start_hour:02d}:{start_minute:02d}"
+                    time_end = f"{end_hour:02d}:{end_minute:02d}"
+                    schedule_str += f"  {time_start}-{time_end}: {prev_event.name}\n"
+                    prev_printed_event = prev_event
+                prev_event = event
         return schedule_str
 
 

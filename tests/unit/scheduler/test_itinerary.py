@@ -153,14 +153,6 @@ def test_itinerary_schedule_event_out_of_bounds(itinerary, event1):
         itinerary.schedule_event(event1, day=3, start_slot=49, duration=event1.duration)
 
 
-def test_itinerary_schedule_event_twice(itinerary, event1):
-    """Test scheduling an event twice."""
-    status = itinerary.schedule_event(event1, day=0, start_slot=16, duration=1)
-    assert status == 0
-    with pytest.raises(ValueError):
-        itinerary.schedule_event(event1, day=0, start_slot=20, duration=1)
-
-
 def test_itinerary_schedule_event_closed_day(itinerary, event1):
     """Test scheduling an event on a closed day."""
 
