@@ -197,7 +197,7 @@ class ItineraryScheduler:
                             if status == 0:
                                 score = self.normalized_score_day_itinerary(itinerary, day, **score_fn_weights)
                                 current_net_score = score - original_score
-                                logger.info(
+                                logger.debug(
                                     f"Day {day}: event {event.name} "
                                     + f"can be scheduled on [{current_time+candidate_wait, current_time+candidate_wait+partial_duration}] "
                                     + f"with duration {partial_duration} get current_net_score: {current_net_score}"

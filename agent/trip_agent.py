@@ -1,19 +1,16 @@
 import copy
 import json
 import logging
+import time
 from typing import Annotated, List, Union
 
-from langchain_core.messages import AIMessage, HumanMessage
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langgraph.checkpoint.memory import MemorySaver
-from langgraph.graph import END, START, StateGraph
+from langgraph.graph import StateGraph
 from langgraph.graph.message import add_messages
-from openai import OpenAI
+from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
 from agent.chat_openai_factory import ChatOpenAIFactory
-from agent.google_place_api import GooglePlaceAPI
 from agent.scheduler.event import (
     Day,
     Event,
@@ -27,10 +24,13 @@ from agent.scheduler.itinerary import (
 )
 from agent.scheduler.itinerary_scheduler import ItineraryScheduler
 from agent.trip_preference import TripPreference
+from agent.utils.google_place_api import GooglePlaceAPI
 from agent.utils.travel_time import get_travel_time_matrix
 
-client = OpenAI()
+client = AsyncOpenAI()
 DEFAULT_CATEGORIES = "Must-visit"
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class State(TypedDict):
@@ -57,11 +57,7 @@ class ProposedAttraction(BaseModel):
     category: str = Field(
         description="Category of interests. Can be one or more categories, at most three categories."
     )
-    # agenda: str = Field(
-    #     description="Agenda highlights in one sentence."
-    # )
     cost: int = Field(description="Price of the attraction/activity in USD")
-    time: str = Field(description="Best time to visit (e.g. morning, evening)")
 
 
 class RefinedAttraction(ProposedAttraction):
@@ -152,23 +148,14 @@ RECOMMENDATION_PROMPT = """
 **Trip Attraction Recommendations Request**
 
 I am planning a trip and need detailed attraction recommendations based on the following preferences:
-
-### Trip Preferences
-- **Location**: {location}
-- **Group Size**: {people_count} people
-- **Budget**: {budget} in USD
 - **Interests**: {interests}
-
 ---
-
 ### Recommendations
 Please provide:
 1. {n_recommendations} aligned recommendations** matching my interests.
 2. Prioritize must-visits categories and order the recommendations based on their relevance to my interests and their popularities.
-3. Make sure each recommendation's budget is within my budget.
-4. Make sure each recommendation's duration is within my trip duration.
-5. Make sure each recommendation's peopleCount is suitable for my group size.
-6. Mare sure each recommendation is a concrete attraction place, not a general activity.
+3. Mare sure each recommendation is a concrete attraction place, not a general activity.
+4. DO NOT recommend any attractions that are in the following list: {excluded_recommendations}
 """
 
 ITINERARY_PROMPT = """
@@ -197,7 +184,7 @@ tools = [
                 "properties": {
                     "score_fn_weights": {
                         "type": "object",
-                        "required": ["w_xp", "w_count", "w_cost", "w_dur", "w_travel_time", "w_gap"],
+                        "required": ["w_xp", "w_count", "w_cost", "w_dur", "w_travel_time", "w_gap", "max_gap_time"],
                         "properties": {
                             "w_xp": {
                                 "type": "number",
@@ -223,6 +210,10 @@ tools = [
                                 "type": "number",
                                 "description": "Weight for gap time (negative for penalties). Higher weight increases the idle time.",
                             },
+                            "max_gap_time": {
+                                "type": "number",
+                                "description": "Maximum gap time allowed between events (in hours). Higher value allows more flexibility. Default is 2 hours.",
+                            },
                         },
                         "additionalProperties": False,
                     },
@@ -246,67 +237,62 @@ class TripAgent:
 
     async def get_categories(self, location: str) -> List[str]:
         """Get a list of categories of activities for visitors to a location."""
-        prompt_template = ChatPromptTemplate(
-            [
-                ("system", SYSTEM_MESSAGE_TEMPLATE),
-                (
-                    "human",
-                    # Provide only concise category names without details.",
-                    f"List 10 most interesting categories of activities for visitors to {location} (e.g. food, sight-seeing).",
-                ),
-            ]
-        )
-        recommender = self.chat_openai_factory.create(
+
+        completion = await client.beta.chat.completions.parse(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": SYSTEM_MESSAGE_TEMPLATE.format(location=location)},
+                {
+                    "role": "user",
+                    "content": f"List 10 most interesting categories of activities for visitors to {location} (e.g. food, sight-seeing).",
+                },
+            ],
             top_p=0.95,
-            model_name="gpt-3.5-turbo",
-        ).with_structured_output(Categories)
-        chain = prompt_template | recommender
-        categoreis = await chain.ainvoke(
-            {
-                "location": location,
-            }
+            response_format=Categories,
         )
-        return categoreis.categories
+        categories = completion.choices[0].message.parsed
+        return categories.categories
 
     async def get_recommendations(
         self,
+        location: str,
         n_recommendations: int,
         trip_preference: TripPreference,
+        excluded_recommendations: List[str],
     ) -> List[RefinedAttraction]:
-        n_recommendations = max(n_recommendations, 3)
-
-        system_message = SYSTEM_MESSAGE_TEMPLATE + (
-            " Provide the best possible attractions recommendations for the user based on their preferences."
-        )
-
-        prompt_template = ChatPromptTemplate(
-            [
-                ("system", system_message),
-                ("human", RECOMMENDATION_PROMPT),
+        start_time = time.time()
+        completion = await client.beta.chat.completions.parse(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": SYSTEM_MESSAGE_TEMPLATE.format(location=location)},
+                {
+                    "role": "user",
+                    "content": RECOMMENDATION_PROMPT.format(
+                        n_recommendations=n_recommendations,
+                        interests=trip_preference,
+                        excluded_recommendations=excluded_recommendations,
+                    ),
+                },
             ],
-        )
-        recommender = self.chat_openai_factory.create(
             top_p=0.95,
-            model_name="gpt-4o",
-        ).with_structured_output(TripRecommendations)
-        chain = prompt_template | recommender
-        recommendations = await chain.ainvoke(
-            input={
-                "n_recommendations": n_recommendations,
-                "people_count": trip_preference.people_count,
-                "location": trip_preference.location,
-                "budget": trip_preference.budget,
-                "interests": {", ".join(trip_preference.interests)},
-            }
+            response_format=TripRecommendations,
         )
+        end_time = time.time()
+        logger.info(f"Time taken to generate recommendations: {end_time - start_time} seconds")
+        recommendations = completion.choices[0].message.parsed
         # verify and augmented with Places API
         refined_attractions = []
-        print(f"proposed_attractions: {[i.name for i in recommendations.proposed_attraction]}")
-        for proposed_attraction in recommendations.proposed_attraction:
-            search_res = self.google_place_api.text_search(f"{proposed_attraction.name} in {trip_preference.location}")
-            print(search_res["rating"])
-            if search_res:
-                search_res = {k: search_res[k] for k in list(RefinedAttraction.model_fields.keys())[5:]}
+        queries = [
+            f"{proposed_attraction.name} in {location}" for proposed_attraction in recommendations.proposed_attraction
+        ]
+        start_time = time.time()
+        all_search_res = await self.google_place_api.batch_text_search(queries)
+        end_time = time.time()
+        logger.info(f"Time taken to refine attractions: {end_time - start_time} seconds")
+        for proposed_attraction, query in zip(recommendations.proposed_attraction, queries):
+            if query in all_search_res and len(all_search_res[query]) > 0:
+                search_res = all_search_res[query][0]
+                search_res = {k: search_res[k] for k in list(RefinedAttraction.model_fields.keys())[4:]}
                 refined_attractions.append(RefinedAttraction(**(proposed_attraction.dict() | search_res)))
         return refined_attractions
 
@@ -376,10 +362,12 @@ Provide a set of weights for the `schedule_events` function, ensuring they are t
         for _ in range(3):
             if completion.choices[0].message.tool_calls is None:
                 break
+
             tool_call = completion.choices[0].message.tool_calls[0]
             weights_dict = json.loads(tool_call.function.arguments)
             weights_dict_hist.append(weights_dict)
-
+            max_gap_time = weights_dict["score_fn_weights"]["max_gap_time"]
+            weights_dict["score_fn_weights"].pop("max_gap_time")
             scheduler = ItineraryScheduler(
                 events=copy.deepcopy(events),
                 start_day=Day[start_day.upper()],
@@ -388,7 +376,7 @@ Provide a set of weights for the `schedule_events` function, ensuring they are t
                 travel_cost_matrix=travel_cost_matrix,
                 travel_time_matrix=travel_time_matrix,
                 allow_partial_attendance=True,
-                largest_waiting_time=convert_hours_to_slots(2),
+                largest_waiting_time=max_gap_time,
             )
             itinerary = scheduler.greedy_schedule(**weights_dict)
             event_cost, travel_cost = itinerary.calculate_total_cost()
@@ -420,7 +408,9 @@ Provide a set of weights for the `schedule_events` function, ensuring they are t
                     "You spent too little money."
                     "Please schedule more events by making w_cost larger; potentially increasing w_xp or w_count might help.\n"
                 )
-
+            logger.info(weights_dict)
+            logger.info(itinerary_summary)
+            logger.info(user_feedback_prompt)
             messages.append(
                 {
                     "role": "user",
@@ -436,114 +426,5 @@ Provide a set of weights for the `schedule_events` function, ensuring they are t
                 messages=messages,
                 tools=tools,
             )
-            import pdb
-
-            pdb.set_trace()
+        logger.info(weights_dict_hist)
         return str(itinerary)
-
-    async def get_itinerary_with_reflection(
-        self,
-        recommendations: Union[List[RefinedAttraction] | str],
-        trip_preference: TripPreference,
-        reflection_num: int = 3,
-    ) -> str:
-        """Generate a detailed itinerary based on the recommendations."""
-
-        system_message = SYSTEM_MESSAGE_TEMPLATE.format(location=trip_preference.location) + (
-            " Generate a detailed itinerary based on the follwing preferences and recommended attractions provided by users."
-            " Dont use the attractions outside the recommended attractions unless there is not enough attractions."
-            " If the user provides feedback on how to modify the trip, respond with a revised version of your previous attempts."
-        )
-        if not isinstance(recommendations, str):
-            recommendations_str = ""
-            for rec in recommendations:
-                recommendations_str += str(rec) + "\n"
-        else:
-            recommendations_str = recommendations
-        prompt_template = ChatPromptTemplate(
-            [
-                ("system", system_message),
-                MessagesPlaceholder(variable_name="messages"),
-            ],
-        )
-        llm = self.chat_openai_factory.create(
-            top_p=0.95,
-            model_name="gpt-4o",
-        ).with_structured_output(TripItinerary)
-        generate = prompt_template | llm
-
-        system_message = SYSTEM_MESSAGE_TEMPLATE.format(location=trip_preference.location) + (
-            f" You are assessing an itineray of a trip to {trip_preference.location}."
-            " **Checking**"
-            " 1. Check any attractions in the itinerary are inside the user's attraction candidates."
-            " In addtion, check if the properties of the attractions in the itinerary are the same as them in the user's attraction candidates."
-            " Compare each properties side-by-side to ensure they are the same."
-            " 2. Check if the total buduget is within the user's preferences."
-            " Add the budget of each attraction in the itinerary and check if the total budget is within the user's preferences."
-            " 3. Check if the group size is within the user's preferences."
-            " 4. Check if the duration is within the user's perferences."
-            " 5. Check if the itinerary if it is too packed or too loose."
-            " 6. Check if the itinerary is feasible: if one attraction is too far from another, if the user has enough time to visit all attractions."
-            " After executing all checkings, generate an overvall critique and recommendations for the user's itinerary."
-        )
-
-        reflection_prompt = ChatPromptTemplate.from_messages(
-            [
-                (
-                    "system",
-                    system_message,
-                ),
-                MessagesPlaceholder(variable_name="messages"),
-            ]
-        )
-        llm = self.chat_openai_factory.create(
-            temperature=0,
-            model_name="gpt-4o",
-        )
-        reflect = reflection_prompt | llm
-
-        async def generation_node(state: State) -> State:
-            messages = await generate.ainvoke(state["messages"])
-            return {"messages": [itinerary_to_string(messages)]}
-
-        async def reflection_node(state: State) -> State:
-            # Other messages we need to adjust
-            cls_map = {"ai": HumanMessage, "human": AIMessage}
-            # First message is the original user request. We hold it the same for all nodes
-            translated = [state["messages"][0]] + [
-                cls_map[msg.type](content=msg.content) for msg in state["messages"][1:]
-            ]
-            res = await reflect.ainvoke(translated)
-            # We treat the output of this as human feedback for the generator
-            return {"messages": [HumanMessage(content=res.content)]}
-
-        def should_continue(state: State):
-            # Larger than 6 because we have one user's request at the beginning.
-            if len(state["messages"]) > reflection_num * 2:
-                # End after 3 iterations
-                return END
-            return "reflect"
-
-        builder = StateGraph(State)
-        builder.add_node("generate", generation_node)
-        builder.add_node("reflect", reflection_node)
-        builder.add_edge(START, "generate")
-        builder.add_conditional_edges("generate", should_continue)
-        builder.add_edge("reflect", "generate")
-        memory = MemorySaver()
-        graph = builder.compile(checkpointer=memory)
-        itinerary_request = ITINERARY_PROMPT.format(
-            trip_days=trip_preference.trip_days,
-            people_count=trip_preference.people_count,
-            location=trip_preference.location,
-            budget=trip_preference.budget,
-            recommendations=recommendations_str,
-            function_name="TripItinerary",
-        )
-        itinerary = await graph.ainvoke(
-            input={
-                "messages": [HumanMessage(content=itinerary_request)],
-            },
-            config={"configurable": {"thread_id": "1"}},
-        )
-        return itinerary["messages"][-1].content
