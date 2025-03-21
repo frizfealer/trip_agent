@@ -2,7 +2,7 @@ import copy
 import json
 import logging
 import time
-from typing import Annotated, List, Union
+from typing import Annotated, List, Optional, Union
 
 from langgraph.graph import StateGraph
 from langgraph.graph.message import add_messages
@@ -225,8 +225,152 @@ tools = [
 ]
 
 
-class State(TypedDict):
-    messages: Annotated[list, add_messages]
+TRIP_INQUIRY_PROMPT = """
+StateAct as an itinerary agent and gather detailed information from customers to help construct their itineraries.
+
+Politely and friendly inquire about the following details for the itinerary:
+- City they want to visit
+- Total number of days for the itinerary
+- Starting day of the itinerary (e.g., Monday)
+- Budget
+- Number of people
+- Any additional information or specific requirements
+
+Encourage the customers to provide as much detail as possible. If customers are reluctant, focus on obtaining at least the city and the number of days for the itinerary. Respect their choice if they prefer not to provide details.
+
+# Steps
+
+1. Greet the customer warmly and introduce yourself as the itinerary agent.
+2. Ask about the city they are interested in visiting.
+3. Inquire about the total number of days they plan for the itinerary.
+4. Request information about the itinerary's starting day.
+5. Ask about their budget for the trip.
+6. Determine the number of people traveling.
+7. Encourage them to share any additional requirements or preferences.
+8. If the customer is hesitant, gently remind them that these details help in creating a more tailored itinerary.
+9. Respect their decision if they choose not to share information.
+11. Once the requirements are gathered, use the extract_itinerary_details` function to generate the itinerary.
+"""
+
+TOOLS_FOR_TRIP_INQUIRY = [
+    {
+        "type": "function",
+        "name": "extract_trip_details",
+        "description": "Extract the user's trip's details",
+        "strict": False,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "city": {"type": "string", "description": "City the user wants to visit"},
+                "days": {"type": "number", "description": "Total number of days for the trip"},
+                "starting_day": {
+                    "type": "string",
+                    "description": "Starting day of the trip (e.g. Monday, 2025-01-01, This Memorial Day.)",
+                },
+                "people_count": {"type": "number", "description": "Number of people going on the trip"},
+                "budget": {
+                    "type": "number",
+                    "description": "Total budget for the trip, can be None if not provided",
+                },
+                "additional_requirements": {
+                    "type": "string",
+                    "description": "Any additional requirements for the trip; 'None' means no additional requirements",
+                },
+            },
+            "additionalProperties": False,
+        },
+    }
+]
+
+TRIP_ITINERARY_PROMPT = """
+Create a short itinerary based on the user's provided requirements. 
+
+user requirements: {user_requirements}
+previous itinerary proposed: {previous_itinerary}
+Ensure the itinerary format follows the specified day-to-day structure and time slots. 
+Consider each requirement carefully to tailor the itinerary specifically to the user's preferences and constraints. 
+Apply your 20 years of experience as a trip agent to create an engaging, practical, and enjoyable travel plan. 
+Ensure that all travel times between events are verified using `calculate_travel_time` and default values are provided when necessary.
+
+# Steps
+
+1. **Understand Requirements**: Carefully review the user's requirements about the trip. 
+2a. **Update the existing itinerary**: If the user has provided an existing itinerary, update the itinerary based on the user's requirements.
+2b. **Generate a new itinerary with default Values**: Generate a new itinerary if no previous itinerary is provided. 
+    If users do not specified, set travel type to driving. Schedule breakfast, lunch, and dinner at 7am, 12:30pm, and 6:30pm, respectively. 
+    Assume each meal duration is one hour if not specified. Assume wake-up time at 6:30am and sleep time at 11:00pm. 
+    Don't assume a hotel location. You should ask the user if you need hotel location information.
+3. **Plan Daily Activities**: Develop a day-by-day schedule that includes suggested attractions, activities, and sites to visit that align with the user's inputs and fit within their specified budget. 
+4. **Verify travel times**: Verify travel times to ensure feasibility by calling the `calculate_travel_time()` function.
+5. **Finalize the Itinerary**: Ensure the itinerary is coherent, seamless, and offers a balance of activities and rest time suitable for the group size and composition. 
+
+
+# Notes
+
+- When considering budget constraints, suggest a mix of free activities (like parks) alongside paid attractions.
+- If you don't have any information about the travel time, dont show travel time as NA (not available).
+- Always check for any special events, holidays, or closures that might affect the availability of certain attractions or activities. 
+  Adjust the itinerary accordingly.
+
+# Examples Output:
+Day 1: Arrival and Explore Hollywood and Griffith Park
+
+- **6:30am-7:30am**: Breakfast at a local cafe
+- **7:30am-8:30am**: Travel to Griffith Observatory. Type: Driving [Travel time: NA because there is no hotel location]
+- **8:30am-10:00am**: Visit the Hollywood Sign. 
+- **10:00am-10:10am**: Travel to Griffith Observatory. Type: Driving [Travel time is approximately 2 minutes to Griffith Observatory, Type: Driving]
+- **10:10am-1:00pm**: Explore Griffith Observatory and enjoy the view of the cityscape.
+- **1:30pm-2:30pm**: Lunch near Griffith Park.
+- **2:30pm-3:10pm**: Travel to The Getty Center. Type: Driving [Travel time is approximately 35 minutes to The Getty Center, Type: Driving]
+- **3:10pm-6:00pm**: Visit The Getty Center.
+- **6:30pm-7:30pm**: Dinner at a nearby restaurant.
+- **7:30pm-8:00pm**: Return to hotel/rest. Type: Driving [Travel time: NA because there is no hotel location]
+"""
+
+TOOLS_FOR_TRIP_ITINERARY = [
+    {
+        "type": "function",
+        "name": "get_travel_times",
+        "description": "Get a matrix of travel times between all pairs of locations. Processes locations in batches to respect API limits. Rate limited to 100 elements per second.",
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "required": ["locations", "default_time", "mode"],
+            "properties": {
+                "locations": {
+                    "type": "array",
+                    "description": "List of location strings (addresses or place names)",
+                    "items": {
+                        "type": "string",
+                        "description": "A location string representing an address or place name",
+                    },
+                },
+                "default_time": {
+                    "type": "number",
+                    "description": "Default travel time in minutes to use when travel time cannot be determined",
+                },
+                "mode": {
+                    "type": "string",
+                    "description": "Travel mode - must be one of 'driving', 'walking', 'bicycling', or 'transit'",
+                    "enum": ["driving", "walking", "bicycling", "transit"],
+                },
+            },
+            "additionalProperties": False,
+        },
+    }
+]
+
+
+class TripDetails(BaseModel):
+    """Trip details extracted from user conversation"""
+
+    city: str
+    num_days: int
+    start_date: Optional[str] = None
+    budget: Optional[int] = None
+    num_people: Optional[int] = None
+    interests: Optional[List[str]] = None
+    additional_requirements: Optional[str] = None
 
 
 class TripAgent:
@@ -342,7 +486,7 @@ class TripAgent:
 
         system_message = """
 You are an itinerary expert tasked with optimizing trip itineraries by assigning appropriate weights to various factors affecting the itinerary's score. 
-Given a user’s trip description, your goal is to provide weights to the `schedule_events` function.
+Given a user's trip description, your goal is to provide weights to the `schedule_events` function.
 
 # Output Format
 Provide a set of weights for the `schedule_events` function, ensuring they are tailored to the budget request and trip description provided.
@@ -428,3 +572,183 @@ Provide a set of weights for the `schedule_events` function, ensuring they are t
             )
         logger.info(weights_dict_hist)
         return str(itinerary)
+
+    async def get_itinerary_inquiry(self, messages=[]):
+        """
+        Interact with the user through multiple rounds to gather trip details.
+
+        Args:
+            messages: List of previous conversation messages. If None, starts a new conversation.
+
+        Returns:
+            Dict containing both the assistant's response and the updated messages list
+        """
+        if messages == []:
+            # Start a new conversation
+            messages = [
+                {"role": "system", "content": TRIP_INQUIRY_PROMPT},
+                {
+                    "role": "assistant",
+                    "content": "Hello! I'm your travel itinerary assistant. To help create your perfect trip plan, I'll need some details. Where would you like to travel to?",
+                },
+            ]
+            return {"response": messages[-1]["content"], "messages": messages}
+
+        # Continue an existing conversation
+        # Get the assistant's response
+        response = await client.responses.create(
+            model="gpt-4o",
+            input=messages,
+            tools=TOOLS_FOR_TRIP_INQUIRY,
+        )
+
+        # Update the messages with the assistant's response
+        updated_messages = messages.copy()
+        assistant_message = ""
+        users_itinerary_details = {}
+
+        if response.output[0].type == "function_call":
+            # Extract the function call details
+            func_call = response.output[0]
+            users_itinerary_details = func_call.arguments
+
+            # Add a dictionary representation of the function call
+            updated_messages.append(func_call)
+            # Add the function result
+            updated_messages.append(
+                {  # append result message
+                    "type": "function_call_output",
+                    "call_id": func_call.call_id,
+                    "output": json.dumps({"status": "success"}),
+                }
+            )
+
+            # Get the response after function call
+            response_after_function_call = await client.responses.create(
+                model="gpt-4o",
+                input=updated_messages,
+                tools=TOOLS_FOR_TRIP_INQUIRY,
+            )
+
+            assistant_message = response_after_function_call.output[0].content[0].text
+            updated_messages.append({"role": "assistant", "content": assistant_message})
+
+        elif response.output[0].type == "message":
+            assistant_message = response.output[0].content[0].text
+            updated_messages.append({"role": "assistant", "content": assistant_message})
+
+        # Ensure we have valid itinerary details or an empty placeholder
+        try:
+            parsed_details = json.loads(users_itinerary_details) if users_itinerary_details else {}
+        except json.JSONDecodeError:
+            parsed_details = {}
+        return {
+            "response": assistant_message,
+            "messages": updated_messages,
+            "users_itinerary_details": [parsed_details] if parsed_details else [],
+        }
+
+    async def get_itinerary_draft(self, itinerary_requirements: dict, itinerary: dict = {}, messages=[]):
+        """
+        Genearte itineary draft based on itineary requirements and previous itinerary if provided.
+        """
+        if itinerary_requirements["city"] is None or itinerary_requirements["days"] is None:
+            return {"status": "error", "message": "Please provide the city and days of the trip."}
+        else:
+            output_format = {
+                "format": {
+                    "type": "json_schema",
+                    "name": "itinerary",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "response": {
+                                "type": "string",
+                                "description": "The response to the user's request related to the proposed itinerary.",
+                            },
+                            # "text": {
+                            #     "type": "string",
+                            #     "description": "The input text containing the itinerary to be extracted.",
+                            # },
+                            "itinerary": {
+                                "type": "array",
+                                "description": "The extracted itinerary items for each day",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "Day": {
+                                            "type": "number",
+                                            "description": "The day number of the itinerary",
+                                        },
+                                        "day-description": {
+                                            "type": "string",
+                                            "description": "Short description of the day-itinerary",
+                                        },
+                                        "day-itinerary": {
+                                            "type": "array",
+                                            "description": "List of activities and events for the day",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "time": {
+                                                        "type": "string",
+                                                        "description": "Time period for the activity",
+                                                    },
+                                                    "title": {
+                                                        "type": "string",
+                                                        "description": "Title of the activity or event",
+                                                    },
+                                                    "type": {
+                                                        "type": "string",
+                                                        "description": "Type of the activity (e.g. event, commute)",
+                                                    },
+                                                },
+                                                "required": ["time", "title", "type"],
+                                                "additionalProperties": False,
+                                            },
+                                        },
+                                    },
+                                    "required": ["Day", "day-description", "day-itinerary"],
+                                    "additionalProperties": False,
+                                },
+                            },
+                        },
+                        "required": ["response", "itinerary"],
+                        "additionalProperties": False,
+                    },
+                    "strict": True,
+                }
+            }
+
+            messages_with_context = [
+                {
+                    "role": "system",
+                    "content": TRIP_ITINERARY_PROMPT.format(
+                        user_requirements=itinerary_requirements, previous_itinerary=itinerary
+                    ),
+                },
+            ]
+            messages_with_context.extend(messages)
+            response = await client.responses.create(
+                model="gpt-4o", input=messages_with_context, tools=TOOLS_FOR_TRIP_ITINERARY, text=output_format
+            )
+        while response.output[0].type == "function_call":
+            func_call = response.output[0]
+            arguments = json.loads(func_call.arguments)
+            travel_time_matrix = get_travel_time_matrix(
+                locations=arguments["locations"], default_time=arguments["default_time"], mode=arguments["mode"]
+            )
+            messages_with_context.append(func_call)
+            # Add the function result
+            messages_with_context.append(
+                {  # append result message
+                    "type": "function_call_output",
+                    "call_id": func_call.call_id,
+                    "output": str(travel_time_matrix),
+                }
+            )
+            response = await client.responses.create(
+                model="gpt-4o", input=messages_with_context, tools=TOOLS_FOR_TRIP_ITINERARY, text=output_format
+            )
+        response = json.loads(response.output[0].content[0].text)
+        return {"itinerary": response["itinerary"], "response": response["response"]}

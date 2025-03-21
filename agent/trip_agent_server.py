@@ -1,18 +1,20 @@
 import base64
 import logging
 import os
-from typing import List
+import traceback
+from typing import Any, List, Optional
 
 import requests
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # Import the necessary classes from our existing codebase
 from agent.chat_openai_factory import ChatOpenAIFactory
 from agent.trip_agent import RefinedAttraction, TripAgent
 from agent.utils.google_place_api import GooglePlaceAPI
+from agent.utils.session_manager import SessionManager
 
 load_dotenv()  # Load environment variables from .env
 
@@ -72,7 +74,27 @@ class ImageProxyRequest(BaseModel):
     url: str
 
 
-# Initialize the agent at startup
+class ItineraryDetailsConversationRequest(BaseModel):
+    """Request model for the itinerary details conversation endpoint"""
+
+    messages: Optional[List[Any]] = Field(
+        default=None, description="Previous conversation messages. If None, starts a new conversation."
+    )
+    session_id: Optional[str] = Field(
+        default=None, description="Session ID for continuing a conversation. If None, creates a new session."
+    )
+
+
+class ItineraryDetailsConversationResponse(BaseModel):
+    """Response model for the itinerary details conversation endpoint"""
+
+    response: str = Field(description="The AI assistant's response")
+    users_itinerary_details: List[dict] = Field(default_factory=list, description="The user's itinerary details")
+    itinerary: Any = Field(default_factory=dict, description="The itinerary according to the user's requirements")
+    session_id: str = Field(description="Session ID for continuing the conversation")
+
+
+# Initialize the agent and session manager at startup
 def get_trip_agent():
     openai_api_key = os.getenv("OPENAI_API_KEY")
     google_api_key = os.getenv("GOOGLE_PLACE_API_KEY")
@@ -85,8 +107,27 @@ def get_trip_agent():
     return TripAgent(chat_factory, google_api)
 
 
-# Create a single instance of TripAgent
+# Create a single instance of TripAgent and SessionManager
 trip_agent = get_trip_agent()
+session_manager = SessionManager()
+
+
+# Helper function for detailed error handling
+def handle_exception(e: Exception, context: str = "API operation"):
+    """
+    Centralized error handler that provides detailed error information
+
+    Args:
+        e: The exception that was raised
+        context: A description of what operation was being performed
+
+    Raises:
+        HTTPException with detailed error information
+    """
+    error_traceback = traceback.format_exc()
+    error_details = {"error": str(e), "traceback": error_traceback, "context": context}
+    logger.error(f"Error in {context}: {str(e)}\n{error_traceback}")
+    raise HTTPException(status_code=500, detail=error_details)
 
 
 @app.post("/api/py/recommendations", response_model=List[Experience])
@@ -116,7 +157,7 @@ async def get_trip_recommendations(payload: RecommendationRequest):
 
         return experiences
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        handle_exception(e, f"getting trip recommendations for {payload.city}")
 
 
 @app.post("/api/py/greedy-itinerary")
@@ -139,7 +180,7 @@ async def get_greedy_itinerary(payload: ItineraryRequest):
 
         return {"itinerary": itinerary_str}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        handle_exception(e, f"creating greedy itinerary for {payload.num_days} days")
 
 
 # Add the hello endpoint to the main app
@@ -158,7 +199,7 @@ async def get_categories(payload: CategoriesRequest):
         categories = await trip_agent.get_categories(payload.city)
         return categories
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        handle_exception(e, f"getting categories for {payload.city}")
 
 
 @app.post("/api/py/proxy-image")
@@ -193,7 +234,143 @@ async def proxy_image(request: ImageProxyRequest):
         return {"imageUrl": f"data:{content_type};base64,{image_base64}"}
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        handle_exception(e, f"proxying image from {request.url}")
+
+
+# Session management endpoints
+@app.post("/api/py/sessions", status_code=201)
+async def create_session():
+    """
+    Create a new conversation session.
+
+    Returns:
+        The session ID for the new session
+    """
+    try:
+        session_id = session_manager.create_session()
+        return {"session_id": session_id}
+    except Exception as e:
+        handle_exception(e, "creating new session")
+
+
+@app.get("/api/py/sessions/{session_id}")
+async def get_session(session_id: str):
+    """
+    Get the details of a specific session.
+
+    Args:
+        session_id: The ID of the session to retrieve
+
+    Returns:
+        The session details or a 404 if not found
+    """
+    session = session_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found or expired")
+
+    return {
+        "session_id": session_id,
+        "created_at": session["created_at"],
+        "last_accessed": session["last_accessed"],
+        "message_count": len(session["messages"]),
+        "has_itinerary_details": bool(session.get("users_itinerary_details")),
+    }
+
+
+@app.delete("/api/py/sessions/{session_id}")
+async def delete_session(session_id: str):
+    """
+    Delete a specific session.
+
+    Args:
+        session_id: The ID of the session to delete
+
+    Returns:
+        Success message or a 404 if not found
+    """
+    if not session_manager.delete_session(session_id):
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+
+    return {"status": "success", "message": f"Session {session_id} deleted"}
+
+
+@app.post("/api/py/itinerary-details-conversation", response_model=ItineraryDetailsConversationResponse)
+async def handle_itinerary_details_conversation(payload: ItineraryDetailsConversationRequest):
+    """
+    Handle multi-turn conversation for gathering trip details from users.
+
+    Uses server-side session management to store conversation history.
+
+    - If session_id is None, starts a new conversation and creates a new session
+    - If session_id is provided, continues the existing conversation from that session
+
+    Returns the assistant's response and updated session information.
+    """
+    try:
+        # Handle session management
+        session_id = payload.session_id
+        session = None
+
+        if session_id:
+            # Try to retrieve existing session
+            session = session_manager.get_session(session_id)
+            if not session:
+                # Session expired or not found, create a new one
+                session_id = session_manager.create_session()
+                session = session_manager.get_session(session_id)
+        else:
+            # No session ID provided, create a new session
+            session_id = session_manager.create_session()
+            session = session_manager.get_session(session_id)
+
+        result = None
+        if (
+            session.get("users_itinerary_details") == []
+            or "city" not in session.get("users_itinerary_details")[0]
+            or "days" not in session.get("users_itinerary_details")[0]
+        ):
+            # Determine the messages to use
+            if session.get("messages"):
+                # Use messages from the session if available
+                messages = session["messages"]
+                messages.extend([{"role": msg["role"], "content": msg["content"]} for msg in payload.messages or []])
+            else:
+                messages = []
+            # Get response from the trip agent
+            result = await trip_agent.get_itinerary_inquiry(messages)
+            # Process the response to ensure all items in messages are dictionaries
+            session_manager.update_session(
+                session_id, messages=result["messages"], users_itinerary_details=result.get("users_itinerary_details")
+            )
+        if (
+            len(session.get("users_itinerary_details")) == 1
+            and "city" in session.get("users_itinerary_details")[0]
+            and "days" in session.get("users_itinerary_details")[0]
+        ):
+            # first time we get the itinerary details
+            if result is not None and len(result.get("users_itinerary_details")) == 1:
+                messages = []
+            else:
+                messages = payload.messages
+            result = await trip_agent.get_itinerary_draft(
+                itinerary_requirements=session.get("users_itinerary_details")[0],
+                itinerary=session.get("itinerary", {}),
+                messages=messages,
+            )
+            # Ensure itinerary is a dictionary format
+            if isinstance(result.get("itinerary"), list):
+                result["itinerary"] = {"days": result.get("itinerary")}
+            session_manager.update_session(session_id, itinerary=result.get("itinerary"))
+
+        # Add the session ID to the response
+        result["session_id"] = session_id
+
+        # Run periodic cleanup of expired sessions (not waiting for result)
+        session_manager.cleanup_expired_sessions()
+
+        return result
+    except Exception as e:
+        handle_exception(e, f"handling itinerary conversation with session {payload.session_id}")
 
 
 if __name__ == "__main__":

@@ -128,10 +128,24 @@ def get_travel_time_matrix(
 
 if __name__ == "__main__":
     # Test locations in New York City
-    test_locations = ["Times Square, New York", "Central Park, New York", "Statue of Liberty", "Fake location"]
-
+    test_locations = [
+        "Hotel in LA",
+        "The Getty Center",
+        "Los Angeles County Museum of Art",
+        "The Grove",
+        "Griffith Observatory",
+        "Hollywood Restaurant",
+        "Universal Studios Hollywood",
+        "CityWalk",
+        "Warner Bros. Studio Tour",
+        "Santa Monica Beach and Pier",
+        "Natural History Museum of Los Angeles",
+        "The Broad",
+        "Olvera Street",
+        "Rooftop Restaurant in LA",
+    ]
     print("Testing travel time matrix with locations:", test_locations)
-    travel_times = get_travel_time_matrix(test_locations, mode="walking")
+    travel_times = get_travel_time_matrix(test_locations, default_time=20, mode="driving")
 
     print("\nTravel times between locations:")
     for (origin, dest), time in travel_times.items():
