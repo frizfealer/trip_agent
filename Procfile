@@ -1,1 +1,1 @@
-web: uvicorn agent.trip_agent_server:app --host=0.0.0.0 --port=$PORT 
+web: gunicorn -k uvicorn.workers.UvicornWorker agent.trip_agent_server:app --log-level debug 
