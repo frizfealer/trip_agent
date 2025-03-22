@@ -11,7 +11,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 # Import the necessary classes from our existing codebase
-from agent.chat_openai_factory import ChatOpenAIFactory
 from agent.trip_agent import RefinedAttraction, TripAgent
 from agent.utils.google_place_api import GooglePlaceAPI
 from agent.utils.session_manager import SessionManager
