@@ -302,6 +302,7 @@ Ensure that all travel times between events are verified using `calculate_travel
     Don't assume a hotel location. You should ask the user if you need hotel location information.
 3. **Plan Daily Activities**: Develop a day-by-day schedule that includes suggested attractions, activities, and sites to visit that align with the user's inputs and fit within their specified budget. 
 4. **Verify travel times**: Verify travel times to ensure feasibility by calling the `calculate_travel_time()` function.
+5. **Include travel events**: Include travel event in the itinerary, this should include the type of travel and travel time.
 5. **Finalize the Itinerary**: Ensure the itinerary is coherent, seamless, and offers a balance of activities and rest time suitable for the group size and composition. 
 
 
@@ -316,15 +317,15 @@ Ensure that all travel times between events are verified using `calculate_travel
 Day 1: Arrival and Explore Hollywood and Griffith Park
 
 - **6:30am-7:30am**: Breakfast at a local cafe
-- **7:30am-8:30am**: Travel to Griffith Observatory. Type: Driving [Travel time: NA because there is no hotel location]
+- **7:30am-8:30am**: Travel to Griffith Observatory. Type: Driving. Travel time: NA because there is no hotel location
 - **8:30am-10:00am**: Visit the Hollywood Sign. 
-- **10:00am-10:10am**: Travel to Griffith Observatory. Type: Driving [Travel time is approximately 2 minutes to Griffith Observatory, Type: Driving]
+- **10:00am-10:10am**: Travel to Griffith Observatory. Type: Driving. Travel time is ~ 2 minutes to Griffith Observatory
 - **10:10am-1:00pm**: Explore Griffith Observatory and enjoy the view of the cityscape.
 - **1:30pm-2:30pm**: Lunch near Griffith Park.
-- **2:30pm-3:10pm**: Travel to The Getty Center. Type: Driving [Travel time is approximately 35 minutes to The Getty Center, Type: Driving]
+- **2:30pm-3:10pm**: Travel to The Getty Center. Type: Driving. Travel time is ~ 35 minutes to The Getty Center
 - **3:10pm-6:00pm**: Visit The Getty Center.
 - **6:30pm-7:30pm**: Dinner at a nearby restaurant.
-- **7:30pm-8:00pm**: Return to hotel/rest. Type: Driving [Travel time: NA because there is no hotel location]
+- **7:30pm-8:00pm**: Return to hotel/rest. Type: Driving. Travel time: NA because there is no hotel location
 """
 
 TOOLS_FOR_TRIP_ITINERARY = [
@@ -735,6 +736,7 @@ Provide a set of weights for the `schedule_events` function, ensuring they are t
         while response.output[0].type == "function_call":
             func_call = response.output[0]
             arguments = json.loads(func_call.arguments)
+            logger.info(f"Function call: {func_call}")
             travel_time_matrix = get_travel_time_matrix(
                 locations=arguments["locations"], default_time=arguments["default_time"], mode=arguments["mode"]
             )

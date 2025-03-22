@@ -367,7 +367,7 @@ async def handle_itinerary_details_conversation(payload: ItineraryDetailsConvers
 
         # Run periodic cleanup of expired sessions (not waiting for result)
         session_manager.cleanup_expired_sessions()
-
+        logger.info(f"session_id: {session_id}, Result: {session}")
         return result
     except Exception as e:
         handle_exception(e, f"handling itinerary conversation with session {payload.session_id}")
