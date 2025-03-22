@@ -321,7 +321,15 @@ async def handle_itinerary_details_conversation(payload: ItineraryDetailsConvers
             session_id = session_manager.create_session()
             session = session_manager.get_session(session_id)
 
-        result = None
+        # Initialize result with a default structure, ensuring it always has a session_id
+        result = {
+            "response": "",
+            "messages": [],
+            "users_itinerary_details": session.get("users_itinerary_details", []),
+            "itinerary": session.get("itinerary", {}),
+            "session_id": session_id,
+        }
+
         if (
             session.get("users_itinerary_details") == []
             or "city" not in session.get("users_itinerary_details")[0]
@@ -335,37 +343,49 @@ async def handle_itinerary_details_conversation(payload: ItineraryDetailsConvers
             else:
                 messages = []
             # Get response from the trip agent
-            result = await trip_agent.get_itinerary_inquiry(messages)
+            inquiry_result = await trip_agent.get_itinerary_inquiry(messages)
             # Process the response to ensure all items in messages are dictionaries
             session_manager.update_session(
-                session_id, messages=result["messages"], users_itinerary_details=result.get("users_itinerary_details")
+                session_id,
+                messages=inquiry_result["messages"],
+                users_itinerary_details=inquiry_result.get("users_itinerary_details"),
             )
+
+            # Update the result with the inquiry results
+            result["response"] = inquiry_result["response"]
+            result["messages"] = inquiry_result["messages"]
+            result["users_itinerary_details"] = inquiry_result.get("users_itinerary_details", [])
+
         if (
-            len(session.get("users_itinerary_details")) == 1
+            len(session.get("users_itinerary_details", [])) == 1
             and "city" in session.get("users_itinerary_details")[0]
             and "days" in session.get("users_itinerary_details")[0]
         ):
             # first time we get the itinerary details
-            if result is not None and len(result.get("users_itinerary_details")) == 1:
-                messages = []
-            else:
+            messages = []
+            if payload.messages:
                 messages = payload.messages
-            result = await trip_agent.get_itinerary_draft(
+
+            draft_result = await trip_agent.get_itinerary_draft(
                 itinerary_requirements=session.get("users_itinerary_details")[0],
                 itinerary=session.get("itinerary", {}),
                 messages=messages,
             )
-            # Ensure itinerary is a dictionary format
-            if isinstance(result.get("itinerary"), list):
-                result["itinerary"] = {"days": result.get("itinerary")}
-            session_manager.update_session(session_id, itinerary=result.get("itinerary"))
 
-        # Add the session ID to the response
-        result["session_id"] = session_id
+            # Ensure itinerary is a dictionary format
+            itinerary_data = draft_result.get("itinerary", {})
+            if isinstance(itinerary_data, list):
+                itinerary_data = {"days": itinerary_data}
+
+            session_manager.update_session(session_id, itinerary=itinerary_data)
+
+            # Update the result with the draft results
+            result["response"] = draft_result.get("response", "")
+            result["itinerary"] = itinerary_data
 
         # Run periodic cleanup of expired sessions (not waiting for result)
         session_manager.cleanup_expired_sessions()
-        logger.info(f"session_id: {session_id}, Result: {session}")
+        logger.info(f"session_id: {session_id}, Session data: {session}")
         return result
     except Exception as e:
         handle_exception(e, f"handling itinerary conversation with session {payload.session_id}")
