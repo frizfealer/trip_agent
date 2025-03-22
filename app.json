@@ -12,6 +12,10 @@
       "description": "Your Google Places API key",
       "required": true
     },
+    "GOOGLE_MAPS_API_KEY": {
+      "description": "Your Google Maps API key",
+      "required": true
+    },
     "PYTHONPATH": {
       "description": "Python path to include the project root",
       "value": "."

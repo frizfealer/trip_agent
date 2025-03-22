@@ -47,6 +47,7 @@ The script will guide you through the deployment process.
    ```
    heroku config:set OPENAI_API_KEY=your_openai_api_key
    heroku config:set GOOGLE_PLACE_API_KEY=your_google_api_key
+   heroku config:set GOOGLE_MAPS_API_KEY=your_google_maps_api_key
    heroku config:set PYTHONPATH=.
    ```
 
@@ -90,6 +91,7 @@ The script will guide you through the deployment process.
    ```
    OPENAI_API_KEY=your_openai_api_key
    GOOGLE_PLACE_API_KEY=your_google_api_key
+   GOOGLE_MAPS_API_KEY=your_google_maps_api_key
    ```
 
 3. Build and run with Docker Compose:
