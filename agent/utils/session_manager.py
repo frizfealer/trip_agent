@@ -17,11 +17,11 @@ class SessionManager:
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
 
         # Configure SSL options for Redis connection
-        ssl_options = {"ssl": True, "ssl_cert_reqs": None}  # Disable certificate verification
-
         # Only apply SSL settings if using a remote Redis (not localhost)
         if "localhost" not in redis_url:
-            self.redis = redis.from_url(redis_url, **ssl_options)
+            self.redis = redis.from_url(
+                redis_url, ssl_params={"verify_mode": None}  # Disable certificate verification
+            )
         else:
             self.redis = redis.from_url(redis_url)
 
