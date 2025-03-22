@@ -1,0 +1,25 @@
+{
+  "name": "Trip Agent API",
+  "description": "A demo API service for trip planning",
+  "repository": "https://github.com/yourusername/trip_agent",
+  "keywords": ["python", "fastapi", "openai", "trip-planning"],
+  "env": {
+    "OPENAI_API_KEY": {
+      "description": "Your OpenAI API key for GPT models",
+      "required": true
+    },
+    "GOOGLE_PLACE_API_KEY": {
+      "description": "Your Google Places API key",
+      "required": true
+    },
+    "PYTHONPATH": {
+      "description": "Python path to include the project root",
+      "value": "."
+    }
+  },
+  "buildpacks": [
+    {
+      "url": "heroku/python"
+    }
+  ]
+} 

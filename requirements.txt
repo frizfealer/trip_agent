@@ -1,0 +1,13 @@
+pytest
+pytest-asyncio
+httpx
+fastapi
+python-dotenv==1.0.0
+googlemaps==4.10.0
+uvicorn==0.27.1
+openai>=1.6.0
+pydantic>=2.0.0
+langgraph>=0.0.40
+typing-extensions>=4.0.0
+requests>=2.0.0
+gunicorn==21.2.0 

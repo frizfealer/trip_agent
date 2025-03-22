@@ -1,0 +1,15 @@
+version: '3'
+
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - PYTHONPATH=.
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GOOGLE_PLACE_API_KEY=${GOOGLE_PLACE_API_KEY}
+    volumes:
+      - ./:/app
+    restart: unless-stopped 
