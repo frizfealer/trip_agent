@@ -699,10 +699,14 @@ Provide a set of weights for the `schedule_events` function, ensuring they are t
                                                     },
                                                     "type": {
                                                         "type": "string",
-                                                        "description": "Type of the activity (e.g. event, commute)",
+                                                        "description": "Type of the activity (e.g. event, commute:driving, comute:biking, commute:walking, commute:transit)",
+                                                    },
+                                                    "estimated_travel_time": {
+                                                        "type": ["number", "null"],
+                                                        "description": "Estimated travel time if the activity is a commute.",
                                                     },
                                                 },
-                                                "required": ["time", "title", "type"],
+                                                "required": ["time", "title", "type", "estimated_travel_time"],
                                                 "additionalProperties": False,
                                             },
                                         },
