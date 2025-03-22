@@ -101,9 +101,8 @@ def get_trip_agent():
     if not openai_api_key or not google_api_key:
         raise HTTPException(status_code=500, detail="OpenAI or Google API key not configured.")
 
-    chat_factory = ChatOpenAIFactory(openai_api_key=openai_api_key)
     google_api = GooglePlaceAPI(api_key=google_api_key)
-    return TripAgent(chat_factory, google_api)
+    return TripAgent(google_api)
 
 
 # Create a single instance of TripAgent and SessionManager

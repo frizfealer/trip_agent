@@ -10,7 +10,6 @@ from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
-from agent.chat_openai_factory import ChatOpenAIFactory
 from agent.scheduler.event import (
     Day,
     Event,
@@ -376,8 +375,7 @@ class TripDetails(BaseModel):
 
 class TripAgent:
 
-    def __init__(self, chat_openai_factory: ChatOpenAIFactory, google_place_api: GooglePlaceAPI):
-        self.chat_openai_factory = chat_openai_factory
+    def __init__(self, google_place_api: GooglePlaceAPI):
         self.google_place_api = google_place_api
 
     async def get_categories(self, location: str) -> List[str]:
