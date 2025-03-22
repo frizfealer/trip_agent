@@ -34,10 +34,12 @@ fi
 echo "Setting up environment variables..."
 read -p "Enter your OpenAI API key: " OPENAI_API_KEY
 read -p "Enter your Google Places API key: " GOOGLE_PLACES_API_KEY
+read -p "Enter your Google Maps API key: " GOOGLE_MAPS_API_KEY
 
 heroku config:set OPENAI_API_KEY=$OPENAI_API_KEY --app $APP_NAME
 heroku config:set GOOGLE_PLACE_API_KEY=$GOOGLE_PLACES_API_KEY --app $APP_NAME
 heroku config:set PYTHONPATH=. --app $APP_NAME
+heroku config:set GOOGLE_MAPS_API_KEY=$GOOGLE_MAPS_API_KEY --app $APP_NAME
 
 # Deploy the app
 echo "Deploying to Heroku..."
