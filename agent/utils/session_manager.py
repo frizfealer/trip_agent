@@ -15,7 +15,16 @@ class SessionManager:
     def __init__(self, expiry_time=DEFAULT_EXPIRY_TIME):  # Default expiry time: 1 hour
         # Try to get Redis URL from environment, fallback to local Redis if not available
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
-        self.redis = redis.from_url(redis_url)
+
+        # Configure SSL options for Redis connection
+        ssl_options = {"ssl": True, "ssl_cert_reqs": None}  # Disable certificate verification
+
+        # Only apply SSL settings if using a remote Redis (not localhost)
+        if "localhost" not in redis_url:
+            self.redis = redis.from_url(redis_url, **ssl_options)
+        else:
+            self.redis = redis.from_url(redis_url)
+
         self.expiry_time = expiry_time
         self.prefix = "trip_agent_session:"
 
