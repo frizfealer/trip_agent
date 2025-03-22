@@ -21,6 +21,9 @@
       "value": "."
     }
   },
+  "addons": [
+    "heroku-redis:mini"
+  ],
   "buildpacks": [
     {
       "url": "heroku/python"
