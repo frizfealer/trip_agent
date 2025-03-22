@@ -16,15 +16,15 @@ class SessionManager:
         # Try to get Redis URL from environment, fallback to local Redis if not available
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
 
-        # Configure SSL options for Redis connection
         # Only apply SSL settings if using a remote Redis (not localhost)
         if "localhost" not in redis_url:
-            self.redis = redis.from_url(
-                redis_url, ssl_params={"verify_mode": None}  # Disable certificate verification
-            )
-        else:
-            self.redis = redis.from_url(redis_url)
+            # Append SSL parameters to the Redis URL if not already present
+            if "?" not in redis_url:
+                redis_url += "?ssl_cert_reqs=none"
+            else:
+                redis_url += "&ssl_cert_reqs=none"
 
+        self.redis = redis.from_url(redis_url)
         self.expiry_time = expiry_time
         self.prefix = "trip_agent_session:"
 
