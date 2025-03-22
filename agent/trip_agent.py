@@ -752,7 +752,11 @@ Provide a set of weights for the `schedule_events` function, ensuring they are t
                 }
             )
             response = await client.responses.create(
-                model="gpt-4o", input=messages_with_context, tools=TOOLS_FOR_TRIP_ITINERARY, text=output_format
+                model="gpt-4o",
+                input=messages_with_context,
+                tools=TOOLS_FOR_TRIP_ITINERARY,
+                text=output_format,
+                temperature=0,
             )
         response = json.loads(response.output[0].content[0].text)
         return {"itinerary": response["itinerary"], "response": response["response"]}
