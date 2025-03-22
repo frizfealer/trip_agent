@@ -2,7 +2,7 @@ import json
 import os
 import time
 import uuid
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import redis
 
@@ -27,6 +27,24 @@ class SessionManager:
         self.redis = redis.from_url(redis_url)
         self.expiry_time = expiry_time
         self.prefix = "trip_agent_session:"
+
+    def _ensure_serializable(self, obj: Any) -> Any:
+        """Ensure the object is JSON serializable by converting special objects to dictionaries"""
+        if hasattr(obj, "__dict__"):
+            # For objects with __dict__, convert to dictionary
+            return self._ensure_serializable(obj.__dict__)
+        elif isinstance(obj, dict):
+            # Process each key-value pair in dictionaries
+            return {k: self._ensure_serializable(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            # Process each item in lists
+            return [self._ensure_serializable(item) for item in obj]
+        elif hasattr(obj, "model_dump"):
+            # For Pydantic models
+            return self._ensure_serializable(obj.model_dump())
+        else:
+            # Return primitive values as is
+            return obj
 
     def create_session(self) -> str:
         """Create a new session and return its ID"""
@@ -80,11 +98,12 @@ class SessionManager:
 
         # Update session data
         if messages:
-            session["messages"] = messages
+            # Make sure messages are serializable by converting objects to dictionaries
+            session["messages"] = self._ensure_serializable(messages)
         if users_itinerary_details:
-            session["users_itinerary_details"] = users_itinerary_details
+            session["users_itinerary_details"] = self._ensure_serializable(users_itinerary_details)
         if itinerary:
-            session["itinerary"] = itinerary
+            session["itinerary"] = self._ensure_serializable(itinerary)
 
         # Update last accessed time
         session["last_accessed"] = time.time()
