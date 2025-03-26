@@ -331,7 +331,7 @@ TOOLS_FOR_TRIP_ITINERARY = [
     {
         "type": "function",
         "name": "get_travel_times",
-        "description": "Get a matrix of travel times between all pairs of locations. Processes locations in batches to respect API limits. Rate limited to 100 elements per second.",
+        "description": "Get a matrix of travel times between all pairs of locations. Processes locations in batches to respect API limits. Rate limited to 100 elements per second. Location should be specific, e.g. Empire Buidling in New York City.",
         "strict": True,
         "parameters": {
             "type": "object",
@@ -671,7 +671,7 @@ Provide a set of weights for the `schedule_events` function, ensuring they are t
                             # },
                             "itinerary": {
                                 "type": "array",
-                                "description": "The extracted itinerary items for each day",
+                                "description": "The proposed itinerary items for each day",
                                 "items": {
                                     "type": "object",
                                     "properties": {
@@ -732,9 +732,16 @@ Provide a set of weights for the `schedule_events` function, ensuring they are t
                 },
             ]
             messages_with_context.extend(messages)
+            start_time = time.time()
             response = await client.responses.create(
-                model="gpt-4o", input=messages_with_context, tools=TOOLS_FOR_TRIP_ITINERARY, text=output_format
+                model="gpt-4o",
+                input=messages_with_context,
+                tools=TOOLS_FOR_TRIP_ITINERARY,
+                text=output_format,
+                temperature=0,
             )
+            end_time = time.time()
+            logger.info(f"Time taken to generate itinerary draft: {end_time - start_time} seconds")
         while response.output[0].type == "function_call":
             func_call = response.output[0]
             arguments = json.loads(func_call.arguments)
@@ -751,6 +758,7 @@ Provide a set of weights for the `schedule_events` function, ensuring they are t
                     "output": str(travel_time_matrix),
                 }
             )
+            start_time = time.time()
             response = await client.responses.create(
                 model="gpt-4o",
                 input=messages_with_context,
@@ -758,5 +766,8 @@ Provide a set of weights for the `schedule_events` function, ensuring they are t
                 text=output_format,
                 temperature=0,
             )
+            end_time = time.time()
+            logger.info(f"Time taken to generate itinerary draft: {end_time - start_time} seconds")
+        # response = json.loads(response.output[0].content[0].text)
         response = json.loads(response.output[0].content[0].text)
         return {"itinerary": response["itinerary"], "response": response["response"]}
