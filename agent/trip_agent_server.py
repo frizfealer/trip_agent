@@ -2,13 +2,19 @@ import base64
 import logging
 import os
 import traceback
+from datetime import UTC, datetime
 from typing import Any, List, Optional
 
 import requests
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+
+# Import the AppException from our exceptions module
+from agent.exceptions import AppException
 
 # Import the necessary classes from our existing codebase
 from agent.trip_agent import RefinedAttraction, TripAgent
@@ -17,7 +23,10 @@ from agent.utils.session_manager import SessionManager
 
 load_dotenv()  # Load environment variables from .env
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
@@ -26,6 +35,61 @@ app = FastAPI(
     docs_url="/api/py/docs",
     openapi_url="/api/py/openapi.json",
 )
+
+
+# --- Exception Handlers ---
+@app.exception_handler(AppException)
+async def app_exception_handler(request: Request, exc: AppException):
+    logger.warning(
+        f"[AppException] {exc.message} "
+        f"URL={request.url.path} "
+        f"Method={request.method} "
+        f"Client={request.client.host if request.client else 'unknown'}"
+    )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": {
+                "message": exc.message,
+                "code": exc.status_code,
+                "error_code": exc.error_code,
+                "timestamp": datetime.now(UTC).isoformat(),
+                "path": str(request.url.path),
+            },
+            "meta": {"status": "error", "timestamp": datetime.now(UTC).isoformat(), "version": "1.0"},
+        },
+    )
+
+
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception):
+    logger.exception(f"[Unhandled Exception] {type(exc).__name__} at {request.method} {request.url.path}")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": {
+                "message": "Internal Server Error",
+                "path": str(request.url.path),
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+        },
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.info(f"[Validation Error] at {request.method} {request.url.path} — {exc.errors()}")
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": {
+                "message": "Validation Error",
+                "details": exc.errors(),
+                "path": str(request.url.path),
+            }
+        },
+    )
+
 
 # Update the CORS middleware configuration
 app.add_middleware(
@@ -73,7 +137,16 @@ class ImageProxyRequest(BaseModel):
     url: str
 
 
-class ItineraryDetailsConversationRequest(BaseModel):
+class TripRequirements(BaseModel):
+    city: str
+    days: int
+    start_date: str
+    end_date: Optional[str] = None
+    budget: Optional[float] = None
+    session_id: Optional[str] = None
+
+
+class ItineraryDraftConversationRequest(BaseModel):
     """Request model for the itinerary details conversation endpoint"""
 
     messages: Optional[List[Any]] = Field(
@@ -84,12 +157,12 @@ class ItineraryDetailsConversationRequest(BaseModel):
     )
 
 
-class ItineraryDetailsConversationResponse(BaseModel):
+class ItineraryDraftConversationResponse(BaseModel):
     """Response model for the itinerary details conversation endpoint"""
 
     response: str = Field(description="The AI assistant's response")
-    users_itinerary_details: List[dict] = Field(default_factory=list, description="The user's itinerary details")
-    itinerary: Any = Field(default_factory=dict, description="The itinerary according to the user's requirements")
+    trip_requirements: dict = Field(default_factory=dict, description="The user's trip requirements")
+    itinerary: dict = Field(default_factory=dict, description="The itinerary according to the user's requirements")
     session_id: str = Field(description="Session ID for continuing the conversation")
 
 
@@ -292,8 +365,86 @@ async def delete_session(session_id: str):
     return {"status": "success", "message": f"Session {session_id} deleted"}
 
 
-@app.post("/api/py/itinerary-details-conversation", response_model=ItineraryDetailsConversationResponse)
-async def handle_itinerary_details_conversation(payload: ItineraryDetailsConversationRequest):
+def _get_session(session_id: Optional[str]):
+    # Handle session management
+    session = None
+    if session_id:
+        # Try to retrieve existing session
+        session = session_manager.get_session(session_id)
+    if not session_id or not session:
+        # No session ID provided, create a new session
+        session_id = session_manager.create_session(
+            {
+                "messages": [],
+                "trip_requirements": {},
+                "itinerary": {},
+            }
+        )
+        session = session_manager.get_session(session_id)
+
+    return session, session_id
+
+
+@app.post("/api/py/post-trip-requirements")
+async def handle_trip_requirements(payload: TripRequirements):
+    """
+    Endpoint to post trip requirements (city, days, starting_date, etc.).
+
+    Required parameters:
+    - city: The destination city
+    - days: Number of days for the trip
+    - starting_date: Start date of the trip
+
+    Optional parameters:
+    - end_date: End date of the trip
+    - budget: Budget for the trip
+    - session_id: Session ID to associate with this request
+
+    Returns:
+        JSON response with standardized format:
+        {
+            "data": {
+                "session_id": str,
+                "trip_requirements": dict
+            }
+        }
+
+    Raises:
+        RequestValidationError: For invalid input format (handled by FastAPI)
+        AppException: For business logic validation errors or server errors
+    """
+    try:
+        _, session_id = _get_session(payload.session_id)
+
+        # Extract trip requirements data
+        trip_data = {"city": payload.city, "days": payload.days, "start_date": payload.start_date}
+
+        # Add optional fields if provided
+        if payload.end_date:
+            trip_data["end_date"] = payload.end_date
+        if payload.budget:
+            trip_data["budget"] = payload.budget
+
+        logger.info(f"Updating session with trip requirements: {trip_data}")
+        # Update session with trip requirements
+        session_manager.update_session(session_id, **{"trip_requirements": trip_data})
+
+        return {"session_id": session_id}
+    except AppException:
+        # Re-raise AppExceptions as they already have the correct format
+        raise
+    except Exception as e:
+        # For unexpected server-side errors
+        raise AppException(
+            message="Failed to process trip requirements",
+            status_code=500,
+            error_code="TRIP_REQUIREMENTS_ERROR",
+            details=str(e),
+        )
+
+
+@app.post("/api/py/itinerary-draft-conversation", response_model=ItineraryDraftConversationResponse)
+async def handle_itinerary_draft_conversation(payload: ItineraryDraftConversationRequest):
     """
     Handle multi-turn conversation for gathering trip details from users.
 
@@ -305,90 +456,55 @@ async def handle_itinerary_details_conversation(payload: ItineraryDetailsConvers
     Returns the assistant's response and updated session information.
     """
     try:
-        # Handle session management
-        session_id = payload.session_id
-        session = None
-
-        if session_id:
-            # Try to retrieve existing session
-            session = session_manager.get_session(session_id)
-            if not session:
-                # Session expired or not found, create a new one
-                session_id = session_manager.create_session()
-                session = session_manager.get_session(session_id)
-        else:
-            # No session ID provided, create a new session
-            session_id = session_manager.create_session()
-            session = session_manager.get_session(session_id)
+        # Handle session management using the updated _get_session function
+        session, session_id = _get_session(payload.session_id)
 
         # Initialize result with a default structure, ensuring it always has a session_id
         result = {
             "response": "",
             "messages": [],
-            "users_itinerary_details": session.get("users_itinerary_details", []),
+            "trip_requirements": session.get("trip_requirements", {}),
             "itinerary": session.get("itinerary", {}),
             "session_id": session_id,
         }
 
-        if (
-            session.get("users_itinerary_details") == []
-            or "city" not in session.get("users_itinerary_details")[0]
-            or "days" not in session.get("users_itinerary_details")[0]
-        ):
-            # Determine the messages to use
-            if session.get("messages"):
-                # Use messages from the session if available
-                messages = session["messages"]
-                messages.extend([{"role": msg["role"], "content": msg["content"]} for msg in payload.messages or []])
-            else:
-                messages = []
-            # Get response from the trip agent
-            inquiry_result = await trip_agent.get_itinerary_inquiry(messages)
-            # Process the response to ensure all items in messages are dictionaries
-            session_manager.update_session(
-                session_id,
-                messages=inquiry_result["messages"],
-                users_itinerary_details=inquiry_result.get("users_itinerary_details"),
-            )
+        # if the trip requirements are not set, we need to get the itinerary details
+        if not session.get("trip_requirements"):
+            result["data"]["response"] = "Please provide your trip requirements in the form."
+            return result
 
-            # Update the result with the inquiry results
-            result["response"] = inquiry_result["response"]
-            result["messages"] = inquiry_result["messages"]
-            result["users_itinerary_details"] = inquiry_result.get("users_itinerary_details", [])
+        messages = []
+        if payload.messages:
+            messages = payload.messages
+        draft_result = await trip_agent.get_itinerary_draft(
+            trip_requirements=session.get("trip_requirements"),
+            itinerary=session.get("itinerary", {}),
+            messages=messages,
+        )
+        # Ensure itinerary is a dictionary format
+        itinerary_draft = draft_result.get("itinerary", {})
+        if isinstance(itinerary_draft, list):
+            itinerary_draft = {"days": itinerary_draft}
 
-        if (
-            len(session.get("users_itinerary_details", [])) == 1
-            and "city" in session.get("users_itinerary_details")[0]
-            and "days" in session.get("users_itinerary_details")[0]
-        ):
-            # first time we get the itinerary details
-            messages = []
-            if payload.messages:
-                messages = payload.messages
-
-            draft_result = await trip_agent.get_itinerary_draft(
-                itinerary_requirements=session.get("users_itinerary_details")[0],
-                itinerary=session.get("itinerary", {}),
-                messages=messages,
-            )
-
-            # Ensure itinerary is a dictionary format
-            itinerary_data = draft_result.get("itinerary", {})
-            if isinstance(itinerary_data, list):
-                itinerary_data = {"days": itinerary_data}
-
-            session_manager.update_session(session_id, itinerary=itinerary_data)
-
-            # Update the result with the draft results
-            result["response"] = draft_result.get("response", "")
-            result["itinerary"] = itinerary_data
-
+        session_manager.update_session(session_id, **{"itinerary": itinerary_draft})
+        # Update the result with the draft results
+        result["response"] = draft_result.get("response", "")
+        result["itinerary"] = itinerary_draft
         # Run periodic cleanup of expired sessions (not waiting for result)
         session_manager.cleanup_expired_sessions()
         logger.info(f"session_id: {session_id}, Session data: {session}")
         return result
+    except AppException:
+        # Re-raise AppExceptions as they already have the correct format
+        raise
     except Exception as e:
-        handle_exception(e, f"handling itinerary conversation with session {payload.session_id}")
+        # For unexpected errors, wrap in AppException with appropriate context
+        logger.error(f"Error in itinerary conversation: {str(e)}\n{traceback.format_exc()}")
+        raise AppException(
+            message=f"Failed to process itinerary conversation: {str(e)}",
+            status_code=500,
+            error_code="ITINERARY_CONVERSATION_ERROR",
+        )
 
 
 if __name__ == "__main__":

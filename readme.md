@@ -131,3 +131,66 @@ The script will guide you through the deployment process.
    ```
 
 5. Access the API at http://localhost:8000/api/py/docs
+
+# AI Trip Planner - Gradio Frontend
+
+This repository contains a Gradio-based frontend for the AI Trip Planner application. The frontend provides a user-friendly interface for interacting with the trip planning backend.
+
+## Running Locally
+
+### Prerequisites
+- Python 3.10+
+- pip
+
+### Setup
+1. Install the required packages:
+```bash
+pip install -r requirements.txt
+```
+
+2. Run the Gradio app:
+```bash
+python gradio_app.py
+```
+
+The Gradio app will be available at http://127.0.0.1:7860.
+
+## Running with Docker
+
+### Prerequisites
+- Docker
+- Docker Compose
+
+### Running the App with Docker Compose
+
+The easiest way to run the app is using Docker Compose, which will start both the Gradio frontend and a mock backend for testing:
+
+```bash
+docker compose up
+```
+
+The Gradio app will be available at http://localhost:7860.
+
+### Building and Running Just the Gradio App
+
+If you want to run just the Gradio app without the mock backend:
+
+```bash
+docker build -t ai-trip-planner-frontend .
+docker run -p 7860:7860 -e BACKEND_URL=http://your-backend-url ai-trip-planner-frontend
+```
+
+## Configuration
+
+The Gradio app can be configured using environment variables or command-line arguments:
+
+- `BACKEND_URL`: URL of the backend API (default: `http://localhost:8001`)
+- `--server-name`: Server name/host (default: `127.0.0.1`, use `0.0.0.0` for Docker)
+- `--server-port`: Server port (default: `7860`)
+
+## Features
+
+- Interactive trip planning form to collect initial trip details
+- Conversational interface for refining trip plans
+- Visual display of the generated itinerary
+- Feedback mechanism for users to rate responses and the itinerary

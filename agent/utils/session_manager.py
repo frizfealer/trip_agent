@@ -1,12 +1,15 @@
 import json
+import logging
 import os
 import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import redis
 
 DEFAULT_EXPIRY_TIME = 3600  # 1 hour
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 # Session Manager for storing conversation history
@@ -46,16 +49,13 @@ class SessionManager:
             # Return primitive values as is
             return obj
 
-    def create_session(self) -> str:
+    def create_session(self, content_fields: dict) -> str:
         """Create a new session and return its ID"""
         session_id = str(uuid.uuid4())
         session_data = {
             "created_at": time.time(),
             "last_accessed": time.time(),
-            "messages": [],
-            "users_itinerary_details": [],
-            "itinerary": {},
-        }
+        } | content_fields
         # Store session data as JSON string
         self.redis.setex(f"{self.prefix}{session_id}", self.expiry_time, json.dumps(session_data))
         return session_id
@@ -79,14 +79,8 @@ class SessionManager:
 
         return session
 
-    def update_session(
-        self,
-        session_id: str,
-        messages: List[dict] = None,
-        users_itinerary_details: List[dict] = None,
-        itinerary: dict = None,
-    ) -> bool:
-        """Update a session with new messages and details"""
+    def update_session(self, session_id: str, **kwargs) -> bool:
+        """Update a session with any fields that are specified, but only if they already exist in the session"""
         session_key = f"{self.prefix}{session_id}"
         session_data = self.redis.get(session_key)
 
@@ -96,20 +90,17 @@ class SessionManager:
         # Deserialize JSON data
         session = json.loads(session_data)
 
-        # Update session data
-        if messages:
-            # Make sure messages are serializable by converting objects to dictionaries
-            session["messages"] = self._ensure_serializable(messages)
-        if users_itinerary_details:
-            session["users_itinerary_details"] = self._ensure_serializable(users_itinerary_details)
-        if itinerary:
-            session["itinerary"] = self._ensure_serializable(itinerary)
+        # Update session data for each provided field, but only if the field already exists in the session
+        for key, value in kwargs.items():
+            if key in session:
+                session[key] = self._ensure_serializable(value)
 
         # Update last accessed time
         session["last_accessed"] = time.time()
 
         # Save the updated session back to Redis
         self.redis.setex(session_key, self.expiry_time, json.dumps(session))
+        logger.info(f"session_id: {session_id}, Session data: {session}")
 
         return True
 

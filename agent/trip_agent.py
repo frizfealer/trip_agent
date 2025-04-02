@@ -572,6 +572,45 @@ Provide a set of weights for the `schedule_events` function, ensuring they are t
         logger.info(weights_dict_hist)
         return str(itinerary)
 
+    async def get_user_intent(self, messages: str):
+        """
+        Get the user's intent from the conversation.
+        """
+        response = client.responses.create(
+            model="gpt-4o",
+            input=[
+                {
+                    "role": "system",
+                    "content": "Determine if the user's intent is get attractions/point of interests recommendations or get itinerary update.",
+                },
+                {"role": "user", "content": messages},
+            ],
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "strict": True,
+                    "name": "intent",
+                    "description": "The user's intent is get attractions recommendations or get itinerary update.",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "intent": {
+                                "type": ["string"],
+                                "description": "Type of intent, can be 'attractions_recommendations' or 'itinerary_update', null if the intent is not clear.",
+                                "enum": ["attractions_recommendations", "itinerary_update", "unclear"],
+                            },
+                        },
+                        "required": ["intent"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+            temperature=0,
+        )
+
+        compliance = json.loads(response.output_text)
+        return compliance["intent"]
+
     async def get_itinerary_inquiry(self, messages=[]):
         """
         Interact with the user through multiple rounds to gather trip details.
@@ -647,12 +686,12 @@ Provide a set of weights for the `schedule_events` function, ensuring they are t
             "users_itinerary_details": [parsed_details] if parsed_details else [],
         }
 
-    async def get_itinerary_draft(self, itinerary_requirements: dict, itinerary: dict = {}, messages=[]):
+    async def get_itinerary_draft(self, trip_requirements: dict, itinerary: dict = {}, messages=[]):
         """
         Genearte itineary draft based on itineary requirements and previous itinerary if provided.
         """
-        if itinerary_requirements["city"] is None or itinerary_requirements["days"] is None:
-            return {"status": "error", "message": "Please provide the city and days of the trip."}
+        if trip_requirements["city"] is None or trip_requirements["days"] is None:
+            raise ValueError("Please provide the city and days of the trip.")
         else:
             output_format = {
                 "format": {
@@ -727,7 +766,7 @@ Provide a set of weights for the `schedule_events` function, ensuring they are t
                 {
                     "role": "system",
                     "content": TRIP_ITINERARY_PROMPT.format(
-                        user_requirements=itinerary_requirements, previous_itinerary=itinerary
+                        user_requirements=trip_requirements, previous_itinerary=itinerary
                     ),
                 },
             ]
