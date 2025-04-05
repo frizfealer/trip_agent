@@ -293,7 +293,7 @@ Ensure that all travel times between events are verified using `calculate_travel
 
 # Steps
 
-1. **Understand Requirements**: Carefully review the user's requirements about the trip. 
+1. **Understand Requirements**: Carefully review the user's requirements about the trip. Ensure the number of days in the proposed itinerary is the same as the number of day of users' requirement.
 2a. **Update the existing itinerary**: If the user has provided an existing itinerary, update the itinerary based on the user's requirements.
 2b. **Generate a new itinerary with default Values**: Generate a new itinerary if no previous itinerary is provided. 
     If users do not specified, set travel type to driving. Schedule breakfast, lunch, and dinner at 7am, 12:30pm, and 6:30pm, respectively. 
