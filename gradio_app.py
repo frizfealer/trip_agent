@@ -238,16 +238,26 @@ with gr.Blocks(theme=gr.themes.Soft(), title="AI Trip Planner") as demo:
         print(f"Chat submitted: Session ID={session_id}, Message={user_message}")  # Debug print
         if not user_message:
             gr.Warning("Please enter a message.")
-            return {
+            yield {
                 chat_input: "",  # this to return at least one output
             }  # No changes for other outputs
+            return
+
+        # waiting for the backend, but need to update the UI
+        yield {
+            chat_input: gr.Textbox(value=user_message, interactive=False),
+            chatbot_display: [{"role": "assistant", "content": "Generating your itinerary, please wait..."}],
+            itinerary_display: "# ⏳ Generating your personalized itinerary...",
+            feedback_row: gr.update(visible=False),
+        }
 
         backend_response = request_itinerary_draft_conversation(session_id=session_id, user_message=user_message)
 
         if backend_response.get("error"):
             gr.Error(f"Backend Error: {backend_response.get('response', 'Unknown error')}")
             # Keep current state on error
-            return {chat_input: ""}
+            yield {chat_input: ""}
+            return
 
         ai_response = backend_response.get("response", "Error: No response from AI.")
         itinerary_md = format_itinerary_md(backend_response.get("itinerary"))
@@ -257,15 +267,16 @@ with gr.Blocks(theme=gr.themes.Soft(), title="AI Trip Planner") as demo:
             {"role": "assistant", "content": ai_response},
         ]
 
-        print(f"Updated Chat History: {new_chat_history}")  # Debug print
-        print(f"Updated Itinerary MD:\n{itinerary_md}")  # Debug print
+        logger.info(f"Updated Chat History: {new_chat_history}")
+        logger.info(f"Updated Itinerary MD:\n{itinerary_md}")
 
         # Return updates for chat input, chatbot, and itinerary
-        return {
+        yield {
             chat_input: "",  # Clear input
             chatbot_display: new_chat_history,
             itinerary_display: itinerary_md,
             chat_history_state: new_chat_history,  # Update state as well
+            feedback_row: gr.update(visible=True),
         }
 
     def handle_reset():
@@ -336,14 +347,14 @@ with gr.Blocks(theme=gr.themes.Soft(), title="AI Trip Planner") as demo:
     send_button.click(
         fn=handle_chat_submit,
         inputs=[session_id_state, chat_input, chat_history_state],
-        outputs=[chat_input, chatbot_display, itinerary_display, chat_history_state],
+        outputs=[chat_input, chatbot_display, itinerary_display, chat_history_state, feedback_row],
     )
 
     # Also allow submitting chat with Enter key
     chat_input.submit(
         fn=handle_chat_submit,
         inputs=[session_id_state, chat_input, chat_history_state],
-        outputs=[chat_input, chatbot_display, itinerary_display, chat_history_state],
+        outputs=[chat_input, chatbot_display, itinerary_display, chat_history_state, feedback_row],
     )
 
     reset_button.click(
