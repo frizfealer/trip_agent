@@ -131,12 +131,15 @@ with gr.Blocks(theme=gr.themes.Soft(), title="AI Trip Planner") as demo:
             # Itinerary Column
             with gr.Column(scale=1):
                 itinerary_display = gr.Markdown(label="Generated Itinerary")
-                with gr.Row():
+                with gr.Group(visible=False) as feedback_row:
                     # Itinerary Feedback UI
-                    like_button = gr.Button("👍 Like Itinerary")
-                    dislike_button = gr.Button("👎 Dislike Itinerary")
-                feedback_text = gr.Textbox(label="Itinerary Feedback/Comments", placeholder="Enter feedback here...")
-                submit_feedback_button = gr.Button("Submit Feedback")
+                    with gr.Row():
+                        like_button = gr.Button("👍 Like Itinerary")
+                        dislike_button = gr.Button("👎 Dislike Itinerary")
+                    feedback_text = gr.Textbox(
+                        label="Itinerary Feedback/Comments", placeholder="Enter feedback here..."
+                    )
+                    submit_feedback_button = gr.Button("Submit Feedback")
 
     # --- Event Handlers ---
 
@@ -160,6 +163,17 @@ with gr.Blocks(theme=gr.themes.Soft(), title="AI Trip Planner") as demo:
                 itinerary_display: "",
             }
 
+        # First update UI to show loading state
+        yield {
+            form_view: gr.update(visible=False),
+            main_view: gr.update(visible=True),
+            session_id_state: None,
+            chat_history_state: [],
+            chatbot_display: [{"role": "assistant", "content": "Generating your itinerary, please wait..."}],
+            itinerary_display: "# ⏳ Generating your personalized itinerary...",
+            feedback_row: gr.update(visible=False),
+        }
+
         # get the session_id
         session_id = post_trip_requirements(city, days, start_date)
         logger.info(f"session_id: {session_id}")
@@ -167,7 +181,7 @@ with gr.Blocks(theme=gr.themes.Soft(), title="AI Trip Planner") as demo:
         # Check if post_trip_requirements failed (returns empty string on error)
         if not session_id:
             gr.Error("Failed to create a session. Please try again.")
-            return {
+            yield {
                 form_view: gr.update(visible=True),
                 main_view: gr.update(visible=False),
                 session_id_state: None,
@@ -175,13 +189,15 @@ with gr.Blocks(theme=gr.themes.Soft(), title="AI Trip Planner") as demo:
                 chatbot_display: None,
                 itinerary_display: "",
             }
+            return
 
         # Get initial response from backend
         draft_response = request_itinerary_draft_conversation(session_id=session_id)
 
         # Check if the backend call failed
         if not draft_response:
-            return {
+            gr.Error("Failed to get itinerary. Please try again.")
+            yield {
                 form_view: gr.update(visible=True),
                 main_view: gr.update(visible=False),
                 session_id_state: None,
@@ -189,6 +205,7 @@ with gr.Blocks(theme=gr.themes.Soft(), title="AI Trip Planner") as demo:
                 chatbot_display: None,
                 itinerary_display: "",
             }
+            return
 
         ai_response = draft_response.get("response", "")
         itinerary_md = format_itinerary_md(draft_response.get("itinerary"))
@@ -201,14 +218,15 @@ with gr.Blocks(theme=gr.themes.Soft(), title="AI Trip Planner") as demo:
         logger.info(f"Initial AI Response: {ai_response}")  # Debug print
         logger.info(f"Initial Itinerary MD:\n{itinerary_md}")  # Debug print
 
-        # Return updates for all outputs
-        return {
+        # Final yield with the actual data
+        yield {
             form_view: gr.update(visible=False),
             main_view: gr.update(visible=True),
             session_id_state: session_id,
             chat_history_state: initial_chat_history,
             chatbot_display: initial_chat_history,
             itinerary_display: itinerary_md,
+            feedback_row: gr.update(visible=True),
         }
 
     def handle_chat_submit(session_id, user_message, current_chat_history):
@@ -221,17 +239,15 @@ with gr.Blocks(theme=gr.themes.Soft(), title="AI Trip Planner") as demo:
         if not user_message:
             gr.Warning("Please enter a message.")
             return {
-                chat_input: "",
-                chatbot_display: current_chat_history,
-                itinerary_display: gr.update(),
-            }  # No change to itinerary
+                chat_input: "",  # this to return at least one output
+            }  # No changes for other outputs
 
         backend_response = request_itinerary_draft_conversation(session_id=session_id, user_message=user_message)
 
         if backend_response.get("error"):
             gr.Error(f"Backend Error: {backend_response.get('response', 'Unknown error')}")
             # Keep current state on error
-            return {chat_input: "", chatbot_display: current_chat_history, itinerary_display: gr.update()}
+            return {chat_input: ""}
 
         ai_response = backend_response.get("response", "Error: No response from AI.")
         itinerary_md = format_itinerary_md(backend_response.get("itinerary"))
@@ -306,7 +322,15 @@ with gr.Blocks(theme=gr.themes.Soft(), title="AI Trip Planner") as demo:
     submit_form_button.click(
         fn=handle_form_submit,
         inputs=[city_input, days_input, start_date_input],
-        outputs=[form_view, main_view, session_id_state, chat_history_state, chatbot_display, itinerary_display],
+        outputs=[
+            form_view,
+            main_view,
+            session_id_state,
+            chat_history_state,
+            chatbot_display,
+            itinerary_display,
+            feedback_row,
+        ],
     )
 
     send_button.click(
