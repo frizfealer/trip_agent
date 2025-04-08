@@ -40,7 +40,8 @@ app = FastAPI(
 # --- Exception Handlers ---
 @app.exception_handler(AppException)
 async def app_exception_handler(request: Request, exc: AppException):
-    logger.warning(
+    # Use logger.exception to include traceback automatically
+    logger.exception(
         f"[AppException] {exc.message} "
         f"URL={request.url.path} "
         f"Method={request.method} "
@@ -180,7 +181,7 @@ def get_trip_agent():
 
 # Create a single instance of TripAgent and SessionManager
 trip_agent = get_trip_agent()
-session_manager = SessionManager()
+session_manager = SessionManager(prefix="trip_agent_session:")
 
 
 # Helper function for detailed error handling
@@ -308,22 +309,6 @@ async def proxy_image(request: ImageProxyRequest):
         handle_exception(e, f"proxying image from {request.url}")
 
 
-# Session management endpoints
-@app.post("/api/py/sessions", status_code=201)
-async def create_session():
-    """
-    Create a new conversation session.
-
-    Returns:
-        The session ID for the new session
-    """
-    try:
-        session_id = session_manager.create_session()
-        return {"session_id": session_id}
-    except Exception as e:
-        handle_exception(e, "creating new session")
-
-
 @app.get("/api/py/sessions/{session_id}")
 async def get_session(session_id: str):
     """
@@ -434,12 +419,13 @@ async def handle_trip_requirements(payload: TripRequirements):
         # Re-raise AppExceptions as they already have the correct format
         raise
     except Exception as e:
-        # For unexpected server-side errors
+        # Log the original error with traceback first
+        logger.exception(f"Original error processing trip requirements for session {payload.session_id or 'new'}")
+        # For unexpected server-side errors, wrap in AppException for consistent API response
         raise AppException(
             message="Failed to process trip requirements",
             status_code=500,
             error_code="TRIP_REQUIREMENTS_ERROR",
-            details=str(e),
         )
 
 
@@ -458,6 +444,7 @@ async def handle_itinerary_draft_conversation(payload: ItineraryDraftConversatio
     try:
         # Handle session management using the updated _get_session function
         session, session_id = _get_session(payload.session_id)
+        logger.info(f"session_id: {session_id}, Session data: {session}")
 
         # Initialize result with a default structure, ensuring it always has a session_id
         result = {
@@ -482,24 +469,20 @@ async def handle_itinerary_draft_conversation(payload: ItineraryDraftConversatio
             messages=messages,
         )
         # Ensure itinerary is a dictionary format
-        itinerary_draft = draft_result.get("itinerary", {})
-        if isinstance(itinerary_draft, list):
-            itinerary_draft = {"days": itinerary_draft}
-
-        session_manager.update_session(session_id, **{"itinerary": itinerary_draft})
+        if draft_result.get("itinerary_updated", False):
+            itinerary_draft = {"days": draft_result.get("itinerary", [])}
+            session_manager.update_session(session_id, **{"itinerary": itinerary_draft})
+            result["itinerary"] = itinerary_draft
         # Update the result with the draft results
         result["response"] = draft_result.get("response", "")
-        result["itinerary"] = itinerary_draft
         # Run periodic cleanup of expired sessions (not waiting for result)
         session_manager.cleanup_expired_sessions()
-        logger.info(f"session_id: {session_id}, Session data: {session}")
         return result
     except AppException:
         # Re-raise AppExceptions as they already have the correct format
         raise
     except Exception as e:
         # For unexpected errors, wrap in AppException with appropriate context
-        logger.error(f"Error in itinerary conversation: {str(e)}\n{traceback.format_exc()}")
         raise AppException(
             message=f"Failed to process itinerary conversation: {str(e)}",
             status_code=500,

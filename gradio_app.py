@@ -107,7 +107,7 @@ with gr.Blocks(theme=gr.themes.Soft(), title="AI Trip Planner") as demo:
         gr.Markdown("### Plan Your Trip")
         # TODO: Replace with actual city list if available from backend?
         city_input = gr.Dropdown(["New York", "Tokyo", "Paris", "London", "Rome", "Taipei"], label="Destination City")
-        days_input = gr.Dropdown([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14], label="Number of Days")
+        days_input = gr.Dropdown([1, 2, 3, 4, 5, 6, 7], label="Number of Days")
         # Using Textbox for date, Gradio doesn't have a dedicated calendar input yet
         start_date_input = gr.Textbox(
             label="Start Date (YYYY-MM-DD)", placeholder=datetime.date.today().strftime("%Y-%m-%d")
@@ -122,16 +122,19 @@ with gr.Blocks(theme=gr.themes.Soft(), title="AI Trip Planner") as demo:
             with gr.Column(scale=1):
                 # Chatbot display
                 chatbot_display = gr.Chatbot(label="Conversation", height=600, type="messages")
-                chat_input = gr.Textbox(label="Your Message", placeholder="Type your message or requirements here...")
-                with gr.Row():
-                    send_button = gr.Button("Send", variant="primary")
-                    chat_feedback_button = gr.Button("Rate Last Response")
-                reset_button = gr.Button("Plan New Trip")
+                with gr.Group(visible=False) as chat_and_feedback_component:
+                    chat_input = gr.Textbox(
+                        label="Your Message", placeholder="Type your message or requirements here..."
+                    )
+                    with gr.Row():
+                        send_button = gr.Button("Send", variant="primary")
+                        chat_feedback_button = gr.Button("Rate Last Response")
+                    reset_button = gr.Button("Plan New Trip")
 
             # Itinerary Column
             with gr.Column(scale=1):
                 itinerary_display = gr.Markdown(label="Generated Itinerary")
-                with gr.Group(visible=False) as feedback_row:
+                with gr.Group(visible=False) as itinerary_feedback_component:
                     # Itinerary Feedback UI
                     with gr.Row():
                         like_button = gr.Button("👍 Like Itinerary")
@@ -171,7 +174,8 @@ with gr.Blocks(theme=gr.themes.Soft(), title="AI Trip Planner") as demo:
             chat_history_state: [],
             chatbot_display: [{"role": "assistant", "content": "Generating your itinerary, please wait..."}],
             itinerary_display: "# ⏳ Generating your personalized itinerary...",
-            feedback_row: gr.update(visible=False),
+            itinerary_feedback_component: gr.update(visible=False),
+            chat_and_feedback_component: gr.update(visible=False),
         }
 
         # get the session_id
@@ -226,7 +230,8 @@ with gr.Blocks(theme=gr.themes.Soft(), title="AI Trip Planner") as demo:
             chat_history_state: initial_chat_history,
             chatbot_display: initial_chat_history,
             itinerary_display: itinerary_md,
-            feedback_row: gr.update(visible=True),
+            itinerary_feedback_component: gr.update(visible=True),
+            chat_and_feedback_component: gr.update(visible=True),
         }
 
     def handle_chat_submit(session_id, user_message, current_chat_history):
@@ -245,10 +250,10 @@ with gr.Blocks(theme=gr.themes.Soft(), title="AI Trip Planner") as demo:
 
         # waiting for the backend, but need to update the UI
         yield {
-            chat_input: gr.Textbox(value=user_message, interactive=False),
-            chatbot_display: [{"role": "assistant", "content": "Generating your itinerary, please wait..."}],
-            itinerary_display: "# ⏳ Generating your personalized itinerary...",
-            feedback_row: gr.update(visible=False),
+            chat_input: gr.Textbox(value=user_message),
+            # itinerary_display: "# ⏳ Updating your personalized itinerary...",
+            itinerary_feedback_component: gr.update(visible=False),
+            chat_and_feedback_component: gr.update(visible=False),
         }
 
         backend_response = request_itinerary_draft_conversation(session_id=session_id, user_message=user_message)
@@ -272,11 +277,12 @@ with gr.Blocks(theme=gr.themes.Soft(), title="AI Trip Planner") as demo:
 
         # Return updates for chat input, chatbot, and itinerary
         yield {
-            chat_input: "",  # Clear input
+            chat_input: gr.Textbox(value=""),
             chatbot_display: new_chat_history,
             itinerary_display: itinerary_md,
             chat_history_state: new_chat_history,  # Update state as well
-            feedback_row: gr.update(visible=True),
+            itinerary_feedback_component: gr.update(visible=True),
+            chat_and_feedback_component: gr.update(visible=True),
         }
 
     def handle_reset():
@@ -340,21 +346,36 @@ with gr.Blocks(theme=gr.themes.Soft(), title="AI Trip Planner") as demo:
             chat_history_state,
             chatbot_display,
             itinerary_display,
-            feedback_row,
+            itinerary_feedback_component,
+            chat_and_feedback_component,
         ],
     )
 
     send_button.click(
         fn=handle_chat_submit,
         inputs=[session_id_state, chat_input, chat_history_state],
-        outputs=[chat_input, chatbot_display, itinerary_display, chat_history_state, feedback_row],
+        outputs=[
+            chat_input,
+            chatbot_display,
+            itinerary_display,
+            chat_history_state,
+            itinerary_feedback_component,
+            chat_and_feedback_component,
+        ],
     )
 
     # Also allow submitting chat with Enter key
     chat_input.submit(
         fn=handle_chat_submit,
         inputs=[session_id_state, chat_input, chat_history_state],
-        outputs=[chat_input, chatbot_display, itinerary_display, chat_history_state, feedback_row],
+        outputs=[
+            chat_input,
+            chatbot_display,
+            itinerary_display,
+            chat_history_state,
+            itinerary_feedback_component,
+            chat_and_feedback_component,
+        ],
     )
 
     reset_button.click(

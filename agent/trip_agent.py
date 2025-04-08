@@ -24,7 +24,7 @@ from agent.scheduler.itinerary import (
 from agent.scheduler.itinerary_scheduler import ItineraryScheduler
 from agent.trip_preference import TripPreference
 from agent.utils.google_place_api import GooglePlaceAPI
-from agent.utils.travel_time import get_travel_time_matrix
+from agent.utils.travel_time import get_travel_time_matrix, get_travel_time_matrix_cached
 
 client = AsyncOpenAI()
 DEFAULT_CATEGORIES = "Must-visit"
@@ -281,15 +281,15 @@ TOOLS_FOR_TRIP_INQUIRY = [
     }
 ]
 
-TRIP_ITINERARY_PROMPT = """
-Create a short itinerary based on the user's provided requirements. 
+TRIP_ITINERARY_DRAFT_PROMPT = """
+Create a short itinerary based on the user's provided requirements or answer the user's question. 
 
 user requirements: {user_requirements}
 previous itinerary proposed: {previous_itinerary}
 Ensure the itinerary format follows the specified day-to-day structure and time slots. 
 Consider each requirement carefully to tailor the itinerary specifically to the user's preferences and constraints. 
 Apply your 20 years of experience as a trip agent to create an engaging, practical, and enjoyable travel plan. 
-Ensure that all travel times between events are verified using `calculate_travel_time` and default values are provided when necessary.
+Ensure that all travel times between events are verified using `get_travel_times` and default values are provided when necessary.
 
 # Steps
 
@@ -300,9 +300,12 @@ Ensure that all travel times between events are verified using `calculate_travel
     Assume each meal duration is one hour if not specified. Assume wake-up time at 6:30am and sleep time at 11:00pm. 
     Don't assume a hotel location. You should ask the user if you need hotel location information.
 3. **Plan Daily Activities**: Develop a day-by-day schedule that includes suggested attractions, activities, and sites to visit that align with the user's inputs and fit within their specified budget. 
-4. **Verify travel times**: Verify travel times to ensure feasibility by calling the `calculate_travel_time()` function.
+4. **Verify travel times**: Verify travel times to ensure feasibility by calling the `get_travel_times()` function.
 5. **Include travel events**: Include travel event in the itinerary, this should include the type of travel and travel time.
 5. **Finalize the Itinerary**: Ensure the itinerary is coherent, seamless, and offers a balance of activities and rest time suitable for the group size and composition. 
+6. **Answer the user's question**: If the user's question is not to update the itinerary, answer the question and return the answer in "response" field. 
+      you can leave the itinerary field empty because the server keep previous iitnerary. In this case, the itinerary_updated should be False.
+      If the itinerary_updated = True, the itinerary fields should not be empty and updated with the new itinerary.
 
 
 # Notes
@@ -470,7 +473,8 @@ class TripAgent:
         travel_cost_matrix = {}
         travel_time_matrix = {}
         try:
-            raw_travel_time_matrix = get_travel_time_matrix(locations, mode=travel_type)
+            # Use cached version
+            raw_travel_time_matrix = get_travel_time_matrix_cached(locations, mode=travel_type)
             # Convert minutes to 30-min slots, rounding to nearest slot
             for (origin, destination), minutes in raw_travel_time_matrix.items():
                 travel_time_matrix[(origin, destination)] = convert_minutes_to_slots(minutes)
@@ -704,10 +708,10 @@ Provide a set of weights for the `schedule_events` function, ensuring they are t
                                 "type": "string",
                                 "description": "The response to the user's request related to the proposed itinerary.",
                             },
-                            # "text": {
-                            #     "type": "string",
-                            #     "description": "The input text containing the itinerary to be extracted.",
-                            # },
+                            "itinerary_updated": {
+                                "type": "boolean",
+                                "description": "Whether the itinerary is updated.",
+                            },
                             "itinerary": {
                                 "type": "array",
                                 "description": "The proposed itinerary items for each day",
@@ -755,7 +759,7 @@ Provide a set of weights for the `schedule_events` function, ensuring they are t
                                 },
                             },
                         },
-                        "required": ["response", "itinerary"],
+                        "required": ["response", "itinerary_updated", "itinerary"],
                         "additionalProperties": False,
                     },
                     "strict": True,
@@ -765,7 +769,7 @@ Provide a set of weights for the `schedule_events` function, ensuring they are t
             messages_with_context = [
                 {
                     "role": "system",
-                    "content": TRIP_ITINERARY_PROMPT.format(
+                    "content": TRIP_ITINERARY_DRAFT_PROMPT.format(
                         user_requirements=trip_requirements, previous_itinerary=itinerary
                     ),
                 },
@@ -785,7 +789,8 @@ Provide a set of weights for the `schedule_events` function, ensuring they are t
             func_call = response.output[0]
             arguments = json.loads(func_call.arguments)
             logger.info(f"Function call: {func_call}")
-            travel_time_matrix = get_travel_time_matrix(
+            # Use cached version
+            travel_time_matrix = get_travel_time_matrix_cached(
                 locations=arguments["locations"], default_time=arguments["default_time"], mode=arguments["mode"]
             )
             messages_with_context.append(func_call)
@@ -809,4 +814,11 @@ Provide a set of weights for the `schedule_events` function, ensuring they are t
             logger.info(f"Time taken to generate itinerary draft: {end_time - start_time} seconds")
         # response = json.loads(response.output[0].content[0].text)
         response = json.loads(response.output[0].content[0].text)
-        return {"itinerary": response["itinerary"], "response": response["response"]}
+        # post-process to remove days larger than the requirements.
+        # response["itinerary"] = response["itinerary"][: trip_requirements["days"]]
+        logger.info(f"Itinerary draft: {response}")
+        return {
+            "itinerary": response["itinerary"],
+            "response": response["response"],
+            "itinerary_updated": response["itinerary_updated"],
+        }

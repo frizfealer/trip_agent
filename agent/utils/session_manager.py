@@ -4,7 +4,7 @@ import os
 import time
 import uuid
 from typing import Any, Dict, Optional
-
+from agent.defaults import DEFAULT_LOCAL_REDIS_URL
 import redis
 
 DEFAULT_EXPIRY_TIME = 3600  # 1 hour
@@ -15,9 +15,11 @@ logger = logging.getLogger(__name__)
 # Session Manager for storing conversation history
 class SessionManager:
 
-    def __init__(self, expiry_time=DEFAULT_EXPIRY_TIME):  # Default expiry time: 1 hour
+    def __init__(
+        self, prefix: str, redis_url: str = DEFAULT_LOCAL_REDIS_URL, expiry_time=DEFAULT_EXPIRY_TIME
+    ):  # Default expiry time: 1 hour
         # Try to get Redis URL from environment, fallback to local Redis if not available
-        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+        redis_url = os.getenv("REDIS_URL", redis_url)
 
         # Only apply SSL settings if using a remote Redis (not localhost)
         if "localhost" not in redis_url:
@@ -29,7 +31,7 @@ class SessionManager:
 
         self.redis = redis.from_url(redis_url)
         self.expiry_time = expiry_time
-        self.prefix = "trip_agent_session:"
+        self.prefix = prefix
 
     def _ensure_serializable(self, obj: Any) -> Any:
         """Ensure the object is JSON serializable by converting special objects to dictionaries"""
@@ -57,7 +59,11 @@ class SessionManager:
             "last_accessed": time.time(),
         } | content_fields
         # Store session data as JSON string
-        self.redis.setex(f"{self.prefix}{session_id}", self.expiry_time, json.dumps(session_data))
+        self.redis.set(
+            f"{self.prefix}{session_id}",
+            json.dumps(session_data),
+            ex=self.expiry_time,
+        )
         return session_id
 
     def get_session(self, session_id: str) -> Optional[Dict]:
@@ -75,7 +81,7 @@ class SessionManager:
         session["last_accessed"] = time.time()
 
         # Update the session with new last_accessed time and reset expiry
-        self.redis.setex(session_key, self.expiry_time, json.dumps(session))
+        self.redis.set(session_key, json.dumps(session), ex=self.expiry_time)
 
         return session
 
@@ -99,7 +105,7 @@ class SessionManager:
         session["last_accessed"] = time.time()
 
         # Save the updated session back to Redis
-        self.redis.setex(session_key, self.expiry_time, json.dumps(session))
+        self.redis.set(session_key, json.dumps(session), ex=self.expiry_time)
         logger.info(f"session_id: {session_id}, Session data: {session}")
 
         return True
