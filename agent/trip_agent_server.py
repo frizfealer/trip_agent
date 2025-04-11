@@ -20,6 +20,7 @@ from agent.exceptions import AppException
 from agent.trip_agent import RefinedAttraction, TripAgent
 from agent.utils.google_place_api import GooglePlaceAPI
 from agent.utils.session_manager import SessionManager
+from agent.utils.supabase_client import get_supabase_client  # Added for Supabase
 
 load_dotenv()  # Load environment variables from .env
 
@@ -156,6 +157,15 @@ class ItineraryDraftConversationRequest(BaseModel):
     session_id: Optional[str] = Field(
         default=None, description="Session ID for continuing a conversation. If None, creates a new session."
     )
+
+
+# Pydantic model for the feedback request
+class FeedbackRequest(BaseModel):
+    session_id: str = Field(description="The session ID associated with the feedback")
+    liked: Optional[bool] = Field(
+        default=None, description="User liked (True), disliked (False), or None if only feedback text is provided"
+    )
+    feedback_text: Optional[str] = Field(default=None, description="User's textual feedback/comment")
 
 
 class ItineraryDraftConversationResponse(BaseModel):
@@ -418,7 +428,7 @@ async def handle_trip_requirements(payload: TripRequirements):
     except AppException:
         # Re-raise AppExceptions as they already have the correct format
         raise
-    except Exception as e:
+    except Exception:
         # Log the original error with traceback first
         logger.exception(f"Original error processing trip requirements for session {payload.session_id or 'new'}")
         # For unexpected server-side errors, wrap in AppException for consistent API response
@@ -460,19 +470,28 @@ async def handle_itinerary_draft_conversation(payload: ItineraryDraftConversatio
             result["data"]["response"] = "Please provide your trip requirements in the form."
             return result
 
-        messages = []
+        current_messages = []
         if payload.messages:
-            messages = payload.messages
+            current_messages = payload.messages
         draft_result = await trip_agent.get_itinerary_draft(
             trip_requirements=session.get("trip_requirements"),
             itinerary=session.get("itinerary", {}),
-            messages=messages,
+            messages=current_messages,
         )
-        # Ensure itinerary is a dictionary format
+        all_messages = session.get("messages", []) + current_messages
         if draft_result.get("itinerary_updated", False):
-            itinerary_draft = {"days": draft_result.get("itinerary", [])}
-            session_manager.update_session(session_id, **{"itinerary": itinerary_draft})
-            result["itinerary"] = itinerary_draft
+            result["itinerary"] = {"days": draft_result.get("itinerary", [])}
+        if draft_result.get("trip_requirements_updated", False):
+            result["trip_requirements"] = draft_result.get("trip_requirements", {})
+        session_manager.update_session(
+            session_id,
+            **{
+                "itinerary": result["itinerary"],
+                "trip_requirements": result["trip_requirements"],
+                "messages": all_messages,
+            },
+        )
+
         # Update the result with the draft results
         result["response"] = draft_result.get("response", "")
         # Run periodic cleanup of expired sessions (not waiting for result)
@@ -487,6 +506,69 @@ async def handle_itinerary_draft_conversation(payload: ItineraryDraftConversatio
             message=f"Failed to process itinerary conversation: {str(e)}",
             status_code=500,
             error_code="ITINERARY_CONVERSATION_ERROR",
+        )
+
+
+@app.post("/api/py/feedback")
+async def handle_feedback(payload: FeedbackRequest):
+    """
+    Endpoint to receive and store user feedback in Supabase.
+    """
+    logger.info(f"Received feedback request for session: {payload.session_id}")
+    try:
+        # 1. Get Supabase client
+        supabase = get_supabase_client()
+
+        # 2. Get session data from Redis
+        session = session_manager.get_session(payload.session_id)
+        if not session:
+            logger.warning(f"Feedback received for non-existent or expired session: {payload.session_id}")
+            raise HTTPException(status_code=404, detail=f"Session {payload.session_id} not found or expired")
+
+        # 3. Prepare data for Supabase insertion
+        # Ensure defaults if keys are missing in session
+        trip_req = session.get("trip_requirements", {})
+        trip_conv = session.get("messages", [])
+        itinerary = session.get("itinerary", {})
+
+        data_to_insert = {
+            "session_id": payload.session_id,
+            "trip_req": trip_req,
+            "trip_conv": trip_conv,
+            "itinerary": itinerary,
+            "liked": payload.liked,
+            "feedback": payload.feedback_text,
+            # 'created_at' is handled by Supabase default
+        }
+
+        # 4. Insert data into Supabase
+        logger.info(f"Inserting feedback into Supabase for session: {payload.session_id}")
+        response = supabase.table("itinerary_feedback").insert(data_to_insert).execute()
+
+        # Optional: Check response status if needed, though supabase-py might raise exceptions on failure
+        # Example check (adjust based on actual response structure if needed):
+        # if not response.data: # Or check response.status_code if available
+        #     logger.error(f"Supabase insert failed for session {payload.session_id}. Response: {response}")
+        #     raise HTTPException(status_code=500, detail="Failed to store feedback in database")
+
+        logger.info(f"Feedback successfully stored for session: {payload.session_id}")
+        return {"status": "success", "message": "Feedback recorded"}
+
+    except HTTPException as http_exc:
+        # Re-raise HTTPExceptions directly
+        raise http_exc
+    except ValueError as ve:  # Catch specific error from get_supabase_client
+        logger.error(f"Supabase configuration error: {ve}")
+        raise HTTPException(status_code=500, detail=f"Supabase configuration error: {ve}")
+    except ConnectionError as ce:  # Catch specific error from get_supabase_client
+        logger.error(f"Supabase connection error: {ce}")
+        raise HTTPException(status_code=503, detail=f"Could not connect to feedback database: {ce}")
+    except Exception as e:
+        # Log the original error with traceback
+        logger.exception(f"Error processing feedback for session {payload.session_id}")
+        # Raise a generic 500 error for other unexpected issues
+        raise HTTPException(
+            status_code=500, detail=f"An unexpected error occurred while processing feedback: {str(e)}"
         )
 
 

@@ -24,7 +24,7 @@ from agent.scheduler.itinerary import (
 from agent.scheduler.itinerary_scheduler import ItineraryScheduler
 from agent.trip_preference import TripPreference
 from agent.utils.google_place_api import GooglePlaceAPI
-from agent.utils.travel_time import get_travel_time_matrix, get_travel_time_matrix_cached
+from agent.utils.travel_time import get_travel_time_matrix_cached
 
 client = AsyncOpenAI()
 DEFAULT_CATEGORIES = "Must-visit"
@@ -306,7 +306,8 @@ Ensure that all travel times between events are verified using `get_travel_times
 6. **Answer the user's question**: If the user's question is not to update the itinerary, answer the question and return the answer in "response" field. 
       you can leave the itinerary field empty because the server keep previous iitnerary. In this case, the itinerary_updated should be False.
       If the itinerary_updated = True, the itinerary fields should not be empty and updated with the new itinerary.
-
+7. **Update the trip requirements**: If the user's requirements are updated, update the trip requirements in the "trip_requirements" field. 
+      The trip_requirements should include the city, days, and additional_requirements.
 
 # Notes
 
@@ -758,8 +759,32 @@ Provide a set of weights for the `schedule_events` function, ensuring they are t
                                     "additionalProperties": False,
                                 },
                             },
+                            "trip_requirements_updated": {
+                                "type": "boolean",
+                                "description": "Whether the trip requirements are updated.",
+                            },
+                            "trip_requirements": {
+                                "type": "object",
+                                "description": "The updated trip requirements.",
+                                "properties": {
+                                    "city": {"type": "string", "description": "The city for the trip."},
+                                    "days": {"type": "number", "description": "Number of days for the trip."},
+                                    "additional_requirements": {
+                                        "type": ["string", "null"],
+                                        "description": "Additional requirements for the trip, can be empty.",
+                                    },
+                                },
+                                "required": ["city", "days", "additional_requirements"],
+                                "additionalProperties": False,
+                            },
                         },
-                        "required": ["response", "itinerary_updated", "itinerary"],
+                        "required": [
+                            "response",
+                            "itinerary_updated",
+                            "itinerary",
+                            "trip_requirements_updated",
+                            "trip_requirements",
+                        ],
                         "additionalProperties": False,
                     },
                     "strict": True,
@@ -821,4 +846,6 @@ Provide a set of weights for the `schedule_events` function, ensuring they are t
             "itinerary": response["itinerary"],
             "response": response["response"],
             "itinerary_updated": response["itinerary_updated"],
+            "trip_requirements_updated": response["trip_requirements_updated"],
+            "trip_requirements": response["trip_requirements"],
         }

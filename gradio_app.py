@@ -13,7 +13,8 @@ logger = logging.getLogger(__name__)
 # Configuration - allow overriding with environment variables
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8001")
 TRIP_REQUIREMENTS_ENDPOINT = f"{BACKEND_URL}/api/py/post-trip-requirements"
-SESSION_ENDPOINT = f"{BACKEND_URL}/api/py/itinerary-draft-conversation"
+ITINERARY_DRAFT_ENDPOINT = f"{BACKEND_URL}/api/py/itinerary-draft-conversation"
+FEEDBACK_ENDPOINT = f"{BACKEND_URL}/api/py/feedback"  # Added feedback endpoint
 
 
 def post_trip_requirements(city, days, start_date) -> str:
@@ -41,7 +42,7 @@ def request_itinerary_draft_conversation(session_id=None, user_message=None):
         "messages": [{"role": "user", "content": user_message}] if user_message else [],
     }
     try:
-        response = requests.post(SESSION_ENDPOINT, json=payload, timeout=120)  # Increased timeout
+        response = requests.post(ITINERARY_DRAFT_ENDPOINT, json=payload, timeout=120)  # Increased timeout
         response.raise_for_status()  # Raise an exception for bad status codes
         data = response.json()
         return data
@@ -285,9 +286,34 @@ with gr.Blocks(theme=gr.themes.Soft(), title="AI Trip Planner") as demo:
             chat_and_feedback_component: gr.update(visible=True),
         }
 
+    def send_feedback_to_backend(session_id: str, liked: bool | None, feedback_text: str | None):
+        """Sends feedback data to the backend API."""
+        if not session_id:
+            gr.Warning("Cannot submit feedback without an active session.")
+            return
+
+        payload = {
+            "session_id": session_id,
+            "liked": liked,
+            "feedback_text": feedback_text if feedback_text else None,  # Ensure null if empty
+        }
+        logger.info(f"Sending feedback to backend: {payload}")
+
+        try:
+            response = requests.post(FEEDBACK_ENDPOINT, json=payload, timeout=30)
+            response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+            gr.Info("Feedback submitted successfully!")
+            logger.info(f"Feedback for session {session_id} submitted successfully.")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error sending feedback for session {session_id}: {e}")
+            gr.Error(f"Failed to submit feedback: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error sending feedback for session {session_id}: {e}")
+            gr.Error("An unexpected error occurred while submitting feedback.")
+
     def handle_reset():
         """Resets the UI to the initial form view."""
-        print("Resetting UI")  # Debug print
+        logger.info("Resetting UI")
         # Clear state and switch views
         return {
             form_view: gr.update(visible=True),
@@ -298,15 +324,7 @@ with gr.Blocks(theme=gr.themes.Soft(), title="AI Trip Planner") as demo:
             itinerary_display: "",
         }
 
-    def handle_itinerary_feedback(session_id, feedback_type, comment):
-        """Placeholder for handling itinerary feedback."""
-        if not session_id:
-            gr.Warning("Cannot submit feedback without an active session.")
-            return comment  # Keep comment in box
-        print(f"Itinerary Feedback Received: Session={session_id}, Type={feedback_type}, Comment='{comment}'")
-        # TODO: Send feedback to a dedicated backend API endpoint
-        gr.Info(f"{feedback_type} feedback submitted!")
-        return ""  # Clear feedback textbox
+    # Removed handle_itinerary_feedback placeholder function
 
     def handle_chat_like(evt: gr.LikeData):
         """Placeholder for handling chatbot message like/dislike."""
@@ -384,21 +402,21 @@ with gr.Blocks(theme=gr.themes.Soft(), title="AI Trip Planner") as demo:
         outputs=[form_view, main_view, session_id_state, chat_history_state, chatbot_display, itinerary_display],
     )
 
-    # Connect itinerary feedback buttons
+    # Connect itinerary feedback buttons to the new handler
     like_button.click(
-        fn=lambda sid, comment: handle_itinerary_feedback(sid, "Like", comment),
-        inputs=[session_id_state, feedback_text],
-        outputs=[feedback_text],  # Clear textbox on submit
+        fn=lambda sid: send_feedback_to_backend(sid, liked=True, feedback_text=None),
+        inputs=[session_id_state],
+        outputs=[],  # No output change needed, feedback function handles notification
     )
     dislike_button.click(
-        fn=lambda sid, comment: handle_itinerary_feedback(sid, "Dislike", comment),
-        inputs=[session_id_state, feedback_text],
-        outputs=[feedback_text],  # Clear textbox on submit
+        fn=lambda sid: send_feedback_to_backend(sid, liked=False, feedback_text=None),
+        inputs=[session_id_state],
+        outputs=[],  # No output change needed
     )
     submit_feedback_button.click(
-        fn=lambda sid, comment: handle_itinerary_feedback(sid, "Comment", comment),
+        fn=lambda sid, comment: send_feedback_to_backend(sid, liked=None, feedback_text=comment),
         inputs=[session_id_state, feedback_text],
-        outputs=[feedback_text],  # Clear textbox on submit
+        outputs=[feedback_text],  # Clear feedback textbox after submission
     )
 
     # Connect chat feedback button

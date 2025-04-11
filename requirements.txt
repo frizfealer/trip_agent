@@ -14,5 +14,8 @@ gunicorn==21.2.0
 aiohttp>=3.8.0
 tenacity>=8.0.0
 anthropic>=0.3.0
+google-generativeai>=0.4.0 # Added for Gemini support
+google-genai
 redis==5.0.1
+supabase
 gradio>=5.0.0
