@@ -1,13 +1,14 @@
-import json
 import logging
 import os
 import time
 from itertools import islice, product
-from typing import Dict, List, Optional, Set, Tuple
-from agent.defaults import DEFAULT_LOCAL_REDIS_URL
+from typing import Dict, List, Set, Tuple
+
 import redis
 import requests
 from dotenv import load_dotenv
+
+from agent.defaults import DEFAULT_LOCAL_REDIS_URL
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -26,7 +27,9 @@ load_dotenv()
 try:
     # Reuse Redis connection logic from SessionManager
     redis_url = os.getenv("REDIS_URL", DEFAULT_LOCAL_REDIS_URL)
-    if "localhost" not in redis_url:
+    # Apply SSL settings based on environment variable
+    redis_ssl_enabled = os.getenv("REDIS_SSL_ENABLED", "false").lower() == "true"
+    if redis_ssl_enabled:
         if "?" not in redis_url:
             redis_url += "?ssl_cert_reqs=none"
         else:

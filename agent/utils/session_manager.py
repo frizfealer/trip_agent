@@ -4,8 +4,10 @@ import os
 import time
 import uuid
 from typing import Any, Dict, Optional
-from agent.defaults import DEFAULT_LOCAL_REDIS_URL
+
 import redis
+
+from agent.defaults import DEFAULT_LOCAL_REDIS_URL
 
 DEFAULT_EXPIRY_TIME = 3600  # 1 hour
 logging.basicConfig(level=logging.INFO)
@@ -21,8 +23,9 @@ class SessionManager:
         # Try to get Redis URL from environment, fallback to local Redis if not available
         redis_url = os.getenv("REDIS_URL", redis_url)
 
-        # Only apply SSL settings if using a remote Redis (not localhost)
-        if "localhost" not in redis_url:
+        # Apply SSL settings based on environment variable
+        redis_ssl_enabled = os.getenv("REDIS_SSL_ENABLED", "false").lower() == "true"
+        if redis_ssl_enabled:
             # Append SSL parameters to the Redis URL if not already present
             if "?" not in redis_url:
                 redis_url += "?ssl_cert_reqs=none"

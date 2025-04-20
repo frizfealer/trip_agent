@@ -96,10 +96,62 @@ The script will guide you through the deployment process.
 
 3. Build and run with Docker Compose:
    ```
-   docker-compose up -d
+   docker-compose up --build
    ```
 
-4. Access the API at http://localhost:8000/api/py/docs
+4. Access the API at http://localhost:8001/api/py/docs and the Gradio UI at http://localhost:7860
+
+#### Redis Configuration in Docker
+
+The application uses Redis for session management and caching. When running in Docker:
+
+- Redis runs as a separate service defined in `docker-compose.yml`
+- The backend and frontend connect to Redis using the service name (`redis://redis:6379`)
+- SSL for Redis is disabled by default using the `REDIS_SSL_ENABLED=false` environment variable
+
+If you need to enable SSL for Redis (for external Redis instances):
+
+1. Set `REDIS_SSL_ENABLED=true` in your environment or docker-compose.yml
+2. Configure your Redis server to use SSL
+3. Update the Redis URL if needed to point to your SSL-enabled Redis server
+
+For local development with Docker, the default configuration works without any changes.
+
+#### Shutting Down Docker Containers
+
+To properly shut down the Docker containers and free up resources:
+
+1. If you started with `docker-compose up` (attached mode), press `Ctrl+C` in the terminal where it's running
+
+2. If you started with `docker-compose up -d` (detached mode), run:
+   ```
+   docker-compose down
+   ```
+
+3. To completely clean up (removes containers, networks, and volumes):
+   ```
+   docker-compose down -v
+   ```
+
+4. To remove built images as well:
+   ```
+   docker-compose down -v --rmi all
+   ```
+
+#### Troubleshooting Redis Connection Issues
+
+If you encounter Redis connection errors like:
+```
+TypeError: AbstractConnection.__init__() got an unexpected keyword argument 'ssl_cert_reqs'
+```
+
+This is typically related to SSL configuration for Redis. The solution is:
+
+1. Ensure `REDIS_SSL_ENABLED=false` is set in the environment for both backend and frontend services when using the Docker Redis service
+2. Check that the Redis URL format is correct for your environment
+3. For external Redis instances that require SSL, make sure your Redis server is properly configured for SSL connections
+
+The application is configured to automatically handle Redis connections based on the `REDIS_SSL_ENABLED` environment variable, which defaults to `false`.
 
 ## API Endpoints
 
@@ -154,31 +206,6 @@ python gradio_app.py
 ```
 
 The Gradio app will be available at http://127.0.0.1:7860.
-
-## Running with Docker
-
-### Prerequisites
-- Docker
-- Docker Compose
-
-### Running the App with Docker Compose
-
-The easiest way to run the app is using Docker Compose, which will start both the Gradio frontend and a mock backend for testing:
-
-```bash
-docker compose up
-```
-
-The Gradio app will be available at http://localhost:7860.
-
-### Building and Running Just the Gradio App
-
-If you want to run just the Gradio app without the mock backend:
-
-```bash
-docker build -t ai-trip-planner-frontend .
-docker run -p 7860:7860 -e BACKEND_URL=http://your-backend-url ai-trip-planner-frontend
-```
 
 ## Configuration
 

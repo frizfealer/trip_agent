@@ -46,5 +46,5 @@ echo "Building and starting Docker containers..."
 docker-compose up -d --build
 
 echo "Deployment complete!"
-echo "Your app is available at: http://localhost:8000"
-echo "API documentation: http://localhost:8000/api/py/docs" 
+echo "Your frontend app is available at: http://localhost:7860"
+echo "API documentation: http://localhost:8001/api/py/docs" 
