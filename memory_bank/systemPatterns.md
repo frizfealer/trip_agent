@@ -61,7 +61,7 @@
 
 ## Data Structures
 
-*   **Pydantic Models:** Extensively used for API request/response validation and structuring data from LLM tools/parsing.
+*   **Pydantic Models:** Extensively used for API request/response validation and structuring data from LLM tools/parsing. **Backend models will need to be updated to support richer data for interactive itinerary elements.** *(New)*
 *   **Session Data (Redis):** JSON strings stored in Redis, containing keys like `created_at`, `last_accessed`, `messages` (list of user/AI turns), `users_itinerary_details` (dict), `itinerary` (dict/list).
 *   **Cache Data (Redis):** Individual travel times (`origin:destination:mode -> time`) stored as strings with a configurable TTL. Keys use the prefix `travel_time:`.
 *   **Exception Handling:** Custom exception classes in `agent/exceptions.py`, with `AppException` as the base class for application-specific errors. FastAPI exception handlers map these to appropriate HTTP responses.
@@ -77,6 +77,8 @@
 
 *   Gradio UI communicates with FastAPI backend via HTTP requests to defined API endpoints.
 *   Frontend manages the `session_id` to maintain conversation state with the backend.
-*   Backend returns structured data (JSON) for the frontend to display (e.g., AI response text, itinerary data, recommendations).
+*   Backend returns structured data (JSON) for the frontend to display (e.g., AI response text, itinerary data, recommendations). **The structure of itinerary data will be enhanced to support richer UI elements.** *(New)*
 *   Frontend includes components to display conversation, itinerary, and allow user input/feedback.
 *   Frontend calls the `/api/py/feedback` endpoint to submit user feedback (like/dislike/comment).
+*   **Frontend Styling:** Gradio UI will be styled using a combination of built-in themes and custom CSS (`frontend/custom.css`). *(New)*
+*   **Frontend Components:** The plan includes using more advanced Gradio component structures (e.g., `gr.Accordion`) for displaying interactive itinerary details, moving beyond simple Markdown where beneficial. *(New)*

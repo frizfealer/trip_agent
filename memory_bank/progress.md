@@ -1,8 +1,8 @@
 # Progress: AI Trip Planner
 
-## Current Status (as of 2025-04-11 - Post Supabase Feedback Integration)
+## Current Status (as of 2025-05-12 - Planning Frontend Modernization)
 
-*   **Phase:** Implemented Supabase integration for storing user feedback. Memory Bank updated. Focus shifts towards integrating existing LLM provider code.
+*   **Phase:** Planning Phase 1 of frontend modernization (Gradio UI enhancements). Supabase integration for feedback is complete. Memory Bank updated to reflect current plans.
 *   **Backend:** Core components implemented in Python using FastAPI.
     *   API endpoints exist for recommendations, categories, session management, conversational itinerary planning (`/api/py/itinerary-details-conversation`), and feedback submission (`/api/py/feedback`).
     *   **LLM Interaction:** Currently uses the `openai` library directly (`AsyncOpenAI` client). Code for a flexible LLM provider abstraction (supporting OpenAI, Gemini, Anthropic via Strategy Pattern) exists in `agent/llm_providers/` but is **not integrated** into the main application flow.
@@ -16,8 +16,9 @@
     *   Connects to backend API for conversation and itinerary updates.
     *   Manages `session_id`.
     *   Includes UI elements for feedback (buttons) which are now **connected to the backend `/api/py/feedback` endpoint**.
+    *   **New Focus:** Actively planning modernization and polishing of the Gradio UI. *(New)*
 *   **Feedback Storage:** User feedback (like/dislike/comment), along with associated session data (requirements, conversation, itinerary), is stored in a Supabase `feedback` table.
-*   **Documentation:** Memory Bank updated to reflect the Supabase feedback integration.
+*   **Documentation:** Memory Bank updated to reflect the Supabase feedback integration and frontend modernization plans.
 
 ## What Works (Based on Code & Discussion)
 
@@ -41,19 +42,36 @@
 
 ## What's Left to Build / Refine
 
-*   **LLM Provider Integration (High Priority):**
+*   **Frontend Modernization - Phase 1 (Gradio):** *(New Section)*
+    *   **Theme and Basic Styling:**
+        *   Experiment with built-in Gradio themes.
+        *   Implement `frontend/custom.css` for custom fonts, colors, spacing.
+        *   Link CSS in `gradio_app.py`.
+    *   **Layout Improvements (Initial Form & Main View):**
+        *   Refactor form layout (e.g., using `gr.Row`).
+        *   Improve visual hierarchy and itinerary display styling.
+    *   **Enhanced User Feedback & Interactivity:**
+        *   Standardize notification styles.
+        *   Improve button styling (variants, icons).
+*   **Frontend Modernization - Phase 1.5 (Interactive Itinerary Elements):** *(New Section)*
+    *   **Backend API Modification:**
+        *   Update `TripAgent.get_itinerary_draft` and Pydantic models to return richer activity data (description, image_url, location_details).
+    *   **Frontend Implementation (Gradio):**
+        *   Refactor itinerary display from `gr.Markdown` to use `gr.Accordion` for days and activities.
+        *   Display detailed activity information (description, image, location) within accordions.
+        *   Update/replace `format_itinerary_md` to support new component structure.
+*   **LLM Provider Integration (High Priority):** *(Existing)*
     *   **Integrate Existing Code:** Refactor `TripAgent` and `TripAgentServer` to use the existing `agent/llm_providers/` code (Strategy/Factory patterns).
     *   **Install Dependencies:** Install `google-generativeai` and `anthropic` libraries *when* integrating.
     *   **Configure Environment:** Set up environment variables (`LLM_PROVIDER`, API keys, model names) for the desired provider *after* integration.
     *   **Test Integration:** Test the integrated providers with actual API keys *after* integration.
-*   **Configure Supabase Environment:** Ensure `SUPABASE_URL` and `SUPABASE_KEY` are set in the `.env` file or environment.
-*   **Backend Enhancements:**
+*   **Configure Supabase Environment:** Ensure `SUPABASE_URL` and `SUPABASE_KEY` are set in the `.env` file or environment. *(Existing)*
+*   **Backend Enhancements:** *(Existing)*
     *   (Optional) Refactor/remove `greedy_scheduler` code if confirmed deprecated.
-*   **Testing:** Expand unit and integration tests, especially for the LLM provider integration (once done) and Supabase interactions.
-*   **Deployment Configuration:** Finalize and test deployment configurations (Heroku/Docker with Redis and Supabase env vars).
-*   **Error Handling:** Enhance robustness for external API/LLM/Redis/Supabase failures, including better error display in Gradio.
-*   **Cost/Rate Limit Management:** Implement strategies if necessary.
-*   **(UI Polish):** Minor improvements to Gradio UI (e.g., better itinerary formatting if needed, clearer feedback confirmation).
+*   **Testing:** Expand unit and integration tests, especially for the LLM provider integration (once done), Supabase interactions, and new frontend interactions. *(Updated)*
+*   **Deployment Configuration:** Finalize and test deployment configurations (Heroku/Docker with Redis and Supabase env vars). *(Existing)*
+*   **Error Handling:** Enhance robustness for external API/LLM/Redis/Supabase failures, including better error display in Gradio. *(Existing)*
+*   **Cost/Rate Limit Management:** Implement strategies if necessary. *(Existing)*
 
 ## Known Issues / Ambiguities (Resolved/Clarified)
 
@@ -63,7 +81,7 @@
 *   Gradio Frontend Status: Confirmed basic UI exists, feedback integration is **implemented** (UI -> Backend -> Supabase).
 *   Debugger Breakpoint: Fixed a debugger breakpoint issue in `gradio_app.py`.
 
-## Evolution of Project Decisions (Reflecting Code Review)
+## Evolution of Project Decisions (Reflecting Code Review & Planning)
 
 *   **Created LLM Provider Abstraction Code:** Code for a flexible architecture (supporting OpenAI, Gemini, Anthropic) was created in `agent/llm_providers/`.
 *   **Designed Strategy Pattern:** The Strategy Pattern was designed to decouple LLM logic, but it is **not yet applied** in the active `TripAgent` or `TripAgentServer`.
@@ -73,3 +91,4 @@
 *   **Memory Bank Updated:** Documentation updated to align with the actual codebase state after review and Supabase integration.
 *   **Implemented Travel Time Caching:** Added `get_travel_time_matrix_cached` and integrated it into `TripAgent` to use Redis for caching Google Maps API results.
 *   **Implemented Feedback Loop:** Added backend endpoint (`/api/py/feedback`), Supabase client utility, and integrated Gradio UI to store user feedback in Supabase.
+*   **Planned Frontend Modernization:** A detailed, phased plan for Gradio UI enhancements (visuals, layout, interactivity) has been established. *(New)*

@@ -20,11 +20,14 @@
 *   **Logging:** Standard Python `logging` module.
 *   **Feedback Storage:** Supabase (PostgreSQL) via `supabase-py`.
 
-## Frontend (Planned)
+## Frontend (Planned & Current) *(Updated Section Title)*
 
 *   **Framework:** Gradio
 *   **Session Handling:** Manages a `session_id` (obtained from backend) using `gr.State` to maintain context across interactions with the backend API.
 *   **Feedback Submission:** Calls the backend `/api/py/feedback` endpoint to submit user feedback.
+*   **Styling:** Uses built-in Gradio themes (e.g., `gr.themes.Soft()` currently). **Planned to incorporate custom CSS (`frontend/custom.css`) for more detailed styling.** *(New)*
+*   **Component Structure:** Primarily uses standard Gradio components (`gr.Markdown`, `gr.Textbox`, `gr.Button`, `gr.Chatbot`). **Planned to explore more complex structures like `gr.Accordion` for interactive itinerary elements.** *(New)*
+
 
 ## External Services & APIs
 
@@ -41,6 +44,7 @@
 *   Set up a Supabase project and create the `feedback` table.
 *   Create a `.env` file with `OPENAI_API_KEY`, `GOOGLE_PLACE_API_KEY`, `REDIS_URL`, `SUPABASE_URL`, `SUPABASE_KEY`, and optionally `TRAVEL_TIME_CACHE_TTL_SECONDS`.
 *   Run backend server: `uvicorn agent.trip_agent_server:app --reload --port 8001`.
+*   **(Frontend) Create `frontend/custom.css` if using custom styles.** *(New)*
 
 ## Deployment (Hints from Filesystem)
 
@@ -64,6 +68,7 @@
 *   `supabase-py`: Supabase client library.
 *   `uvicorn`: ASGI server.
 *   `python-dotenv`: Loading environment variables.
+*   `gradio`: Frontend UI library. *(Added for completeness)*
 
 ## Potential Technical Issues/Considerations
 
@@ -77,3 +82,5 @@
 *   **Cache Management:** Cache uses TTL for expiration. Consider strategies for manual cache invalidation if underlying data changes significantly.
 *   **LLM Reliability & Flexibility:** Ensuring consistent quality from OpenAI. Flexibility is currently limited due to direct integration; integrating the designed abstraction layer is needed for provider switching.
 *   **Feedback Loop:** Backend API endpoint (`/api/py/feedback`) and Gradio frontend integration are implemented to capture user feedback (like/dislike/comment) and store it in Supabase. Further analysis or use of this feedback data is not yet implemented.
+*   **Gradio Customization Limits:** While custom CSS offers flexibility, complex UI changes or highly specific component behaviors might be challenging within Gradio's standard capabilities. *(New)*
+*   **Backend Data for Rich UI:** Implementing interactive UI elements (like detailed activity views) will require the backend to provide more structured and detailed data per itinerary item. *(New)*

@@ -14,16 +14,17 @@ Existing AI planners often provide generic suggestions without deeply considerin
 
 ## Vision
 
-To create an intelligent, interactive trip planning assistant that generates personalized, feasible, and enjoyable itineraries. The assistant should feel like collaborating with an experienced local tour guide who understands the user's needs, the practicalities of travel, and incorporates user feedback.
+To create an intelligent, interactive trip planning assistant that generates personalized, feasible, and enjoyable itineraries. The assistant should feel like collaborating with an experienced local tour guide who understands the user's needs, the practicalities of travel, and incorporates user feedback, presented through a **modern and polished user interface.** *(Updated)*
 
 ## Goals
 
-* **Personalization:** Generate itineraries tailored to user interests, budget, pace, and group size.
-* **Feasibility:** Ensure itineraries are realistic by incorporating travel times, opening hours, and activity durations.
-* **Efficiency:** Optimize routes and schedules to make the most of the user's time.
-* **Interactivity & Feedback:** Allow users to easily refine requirements, request alternative suggestions, modify the generated plan, and provide feedback on AI responses and itinerary items.
-* **Clarity:** Present the itinerary in an easy-to-understand format (initially text-based via API, planned visual UI via Gradio).
-* **Persistence:** Maintain user progress across sessions via persistent backend storage.
+*   **Personalization:** Generate itineraries tailored to user interests, budget, pace, and group size.
+*   **Feasibility:** Ensure itineraries are realistic by incorporating travel times, opening hours, and activity durations.
+*   **Efficiency:** Optimize routes and schedules to make the most of the user's time.
+*   **Interactivity & Feedback:** Allow users to easily refine requirements, request alternative suggestions, modify the generated plan, and provide feedback on AI responses and itinerary items.
+*   **Clarity:** Present the itinerary in an easy-to-understand format (initially text-based via API, planned visual UI via Gradio).
+    *   **UI Polish:** Strive for a modern, intuitive, and visually appealing user interface. *(New)*
+*   **Persistence:** Maintain user progress across sessions via persistent backend storage.
 
 ## Target User
 
