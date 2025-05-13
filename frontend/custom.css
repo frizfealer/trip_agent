@@ -1,0 +1,175 @@
+/* Global Styles */
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    background-color: #f8f9fa; /* Light grey background */
+    color: #212529; /* Darker text for better contrast */
+}
+
+/* Main App Title */
+#app-main-title h1 {
+    text-align: center;
+    color: #007bff; /* Primary blue color */
+    margin-bottom: 1.5rem;
+    font-weight: 600;
+}
+
+/* Headings within sections */
+h3 {
+    color: #343a40; /* Dark grey for subheadings */
+    margin-top: 1.5rem;
+    margin-bottom: 1rem;
+    font-weight: 500;
+}
+
+/* Input fields and text areas styling */
+.gradio-container .gr-input-label,
+.gradio-container .gr-dropdown-label,
+.gradio-container .gr-textbox-label {
+    font-weight: 500 !important;
+    color: #495057 !important; /* Slightly lighter than main text */
+    margin-bottom: 0.3rem !important;
+}
+
+.gradio-container .gr-input,
+.gradio-container .gr-dropdown,
+.gradio-container .gr-textbox textarea {
+    border-radius: 0.3rem !important;
+    border: 1px solid #ced4da !important; /* Standard border color */
+    padding: 0.5rem 0.75rem !important;
+}
+
+.gradio-container .gr-input:focus,
+.gradio-container .gr-dropdown:focus,
+.gradio-container .gr-textbox textarea:focus {
+    border-color: #80bdff !important;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25) !important;
+}
+
+
+/* Button Styling */
+.gradio-container .gr-button {
+    border-radius: 0.3rem !important;
+    padding: 0.6rem 1rem !important;
+    font-weight: 500 !important;
+    transition: background-color 0.15s ease-in-out, border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+
+.gradio-container .gr-button.gr-button-primary {
+    background-color: #007bff !important;
+    border-color: #007bff !important;
+    color: white !important;
+}
+.gradio-container .gr-button.gr-button-primary:hover {
+    background-color: #0056b3 !important;
+    border-color: #0056b3 !important;
+}
+
+.gradio-container .gr-button.gr-button-secondary {
+    background-color: #6c757d !important;
+    border-color: #6c757d !important;
+    color: white !important;
+}
+.gradio-container .gr-button.gr-button-secondary:hover {
+    background-color: #545b62 !important;
+    border-color: #545b62 !important;
+}
+
+
+/* Itinerary Markdown Table Styling */
+.gradio-container .gr-markdown table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+    margin-bottom: 1rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.gradio-container .gr-markdown th,
+.gradio-container .gr-markdown td {
+    border: 1px solid #dee2e6; /* Lighter border for table cells */
+    padding: 0.75rem;
+    text-align: left;
+    vertical-align: top;
+}
+
+.gradio-container .gr-markdown th {
+    background-color: #e9ecef; /* Light grey for table headers */
+    color: #495057;
+    font-weight: 600;
+}
+
+.gradio-container .gr-markdown tr:nth-child(even) td {
+    background-color: #f8f9fa; /* Zebra striping for table rows */
+}
+
+.gradio-container .gr-markdown tr:hover td {
+    background-color: #e2e6ea;
+}
+
+/* Chatbot styling */
+.gradio-container .gr-chatbot {
+    border-radius: 0.3rem;
+    border: 1px solid #ced4da;
+    background-color: #fff; /* White background for chat */
+}
+
+.gradio-container .gr-chatbot .message.user {
+    background-color: #e7f5ff !important; /* Light blue for user messages */
+    border-radius: 10px 10px 0 10px !important; /* Rounded corners for user messages */
+    align-self: flex-end;
+}
+
+.gradio-container .gr-chatbot .message.bot {
+    background-color: #f1f3f5 !important; /* Light grey for bot messages */
+    border-radius: 10px 10px 10px 0 !important; /* Rounded corners for bot messages */
+    align-self: flex-start;
+}
+
+/* General container/group styling */
+.gradio-container .gr-panel, .gradio-container .gr-group {
+    border-radius: 0.3rem !important;
+    border: 1px solid #dee2e6 !important;
+    padding: 1rem !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.03) !important;
+}
+
+/* Adjust spacing for better visual separation */
+.gradio-container .gr-form > *:not(:last-child),
+.gradio-container .gr-column > *:not(:last-child),
+.gradio-container .gr-row > *:not(:last-child) {
+    margin-bottom: 1rem !important; /* Add some space between elements */
+}
+
+/* Ensure full width for main view columns */
+.gradio-container #main_view > .gr-row > .gr-column {
+    min-width: 45% !important; /* Ensure columns in main view take up space */
+}
+
+/* Notification Styling (Toast) */
+.gradio-container .toast-body {
+    font-family: 'Inter', sans-serif !important;
+    padding: 1rem 1.25rem !important;
+    border-radius: 0.3rem !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1) !important;
+    border: none !important;
+}
+
+.gradio-container .toast-body.info {
+    background-color: #e6f7ff !important; /* Light blue for info */
+    color: #005f8d !important;
+}
+
+.gradio-container .toast-body.success {
+    background-color: #e6fff0 !important; /* Light green for success (if Gradio uses it) */
+    color: #006427 !important;
+}
+
+.gradio-container .toast-body.warning {
+    background-color: #fffbe6 !important; /* Light yellow for warning */
+    color: #8a6d3b !important;
+}
+
+.gradio-container .toast-body.error {
+    background-color: #ffe6e6 !important; /* Light red for error */
+    color: #a94442 !important;
+}

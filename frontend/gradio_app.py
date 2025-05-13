@@ -96,8 +96,8 @@ def format_itinerary_md(itinerary_data):
 
 # --- Gradio UI Definition ---
 
-with gr.Blocks(theme=gr.themes.Soft(), title="AI Trip Planner") as demo:
-    gr.Markdown("# 🗺️ AI Trip Planner")
+with gr.Blocks(theme=gr.themes.Soft(), title="AI Trip Planner", css="frontend/custom.css") as demo:
+    gr.Markdown("# 🗺️ AI Trip Planner", elem_id="app-main-title")
 
     # State variables
     session_id_state = gr.State(None)
@@ -106,18 +106,21 @@ with gr.Blocks(theme=gr.themes.Soft(), title="AI Trip Planner") as demo:
     # --- Initial Form View ---
     with gr.Column(visible=True) as form_view:
         gr.Markdown("### Plan Your Trip")
-        # TODO: Replace with actual city list if available from backend?
-        city_input = gr.Dropdown(["New York", "Tokyo", "Paris", "London", "Rome", "Taipei"], label="Destination City")
-        days_input = gr.Dropdown([1, 2, 3, 4, 5, 6, 7], label="Number of Days")
-        # Using Textbox for date, Gradio doesn't have a dedicated calendar input yet
-        start_date_input = gr.Textbox(
-            label="Start Date (YYYY-MM-DD)", placeholder=datetime.date.today().strftime("%Y-%m-%d")
-        )
+        with gr.Row():
+            # TODO: Replace with actual city list if available from backend?
+            city_input = gr.Dropdown(
+                ["New York", "Tokyo", "Paris", "London", "Rome", "Taipei"], label="Destination City", scale=2
+            )
+            days_input = gr.Dropdown([1, 2, 3, 4, 5, 6, 7], label="Number of Days", scale=1)
+            # Using Textbox for date, Gradio doesn't have a dedicated calendar input yet
+            start_date_input = gr.Textbox(
+                label="Start Date (YYYY-MM-DD)", placeholder=datetime.date.today().strftime("%Y-%m-%d"), scale=1
+            )
         # Add other fields if needed (Budget, People Count - can be asked in chat)
         submit_form_button = gr.Button("Start Planning", variant="primary")
 
     # --- Main Interaction View (Chat + Itinerary) ---
-    with gr.Column(visible=False) as main_view:
+    with gr.Column(visible=False, elem_id="main_view") as main_view:
         with gr.Row():
             # Chat Column
             with gr.Column(scale=1):
@@ -128,9 +131,11 @@ with gr.Blocks(theme=gr.themes.Soft(), title="AI Trip Planner") as demo:
                         label="Your Message", placeholder="Type your message or requirements here..."
                     )
                     with gr.Row():
-                        send_button = gr.Button("Send", variant="primary")
-                        chat_feedback_button = gr.Button("Rate Last Response")
-                    reset_button = gr.Button("Plan New Trip")
+                        send_button = gr.Button("➡️ Send", variant="primary")
+                        chat_feedback_button = gr.Button("📝 Rate Last Response")  # Added icon
+                    reset_button = gr.Button(
+                        "🔄 Plan New Trip", variant="secondary"
+                    )  # Changed variant for less emphasis
 
             # Itinerary Column
             with gr.Column(scale=1):
