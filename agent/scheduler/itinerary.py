@@ -177,7 +177,7 @@ class Itinerary:
             5: exceeds itinerary budget.
             6: cannot make it in time for the next event.
         """
-        if not (0 <= day < self.num_days) and not (0 <= start_slot < self.day_resolution):
+        if not (0 <= day < self.num_days) or not (0 <= start_slot < self.day_resolution):
             raise ValueError(
                 f"Attempted to schedule event on day {day} with start slot {start_slot}, which is out of bounds"
             )
